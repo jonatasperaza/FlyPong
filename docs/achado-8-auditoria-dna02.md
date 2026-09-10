@@ -1,7 +1,7 @@
-# Achado 8 — auditoria de conectividade real de DNa02, Giant Fiber, e LC10a
+# Achado 8: auditoria de conectividade real de DNa02, Giant Fiber, e LC10a
 
 Dados brutos, coletados via `neuprint-python` (dataset `male-cns:v1.0`,
-`fetch_adjacencies` — não `fetch_neurons` com filtro de tipo, pra não presumir
+`fetch_adjacencies`, não `fetch_neurons` com filtro de tipo, pra não presumir
 quais parceiros iam aparecer). CSVs brutos em `docs/raw_*.csv`.
 
 ## 1. Todos os parceiros pré-sinápticos de DNa02 e Giant Fiber (sem filtro de tipo)
@@ -13,10 +13,10 @@ quais parceiros iam aparecer). CSVs brutos em `docs/raw_*.csv`.
 | DNp01(GF)_R | 10001 | 16 054 | 697 |
 | DNp01(GF)_L | 10010 | 20 727 | 768 |
 
-DNa02 recebe **mais** sinapses totais que Giant Fiber — não é um neurônio
-"pouco conectado" de forma geral. O problema (Achado 6) é que **nenhuma**
-dessas ~24 mil sinapses vem de `object` (LC4/LPLC2) ou `motion` (T4/T5), os
-únicos papéis visuais que este projeto tinha selecionado até então.
+DNa02 recebe mais sinapses totais que Giant Fiber, não é um neurônio "pouco
+conectado" de forma geral. O problema (Achado 6) é que nenhuma dessas ~24 mil
+sinapses vem de `object` (LC4/LPLC2) ou `motion` (T4/T5), os únicos papéis
+visuais que este projeto tinha selecionado até então.
 
 Top parceiros por peso (amostra, ver CSV bruto pra lista completa):
 
@@ -30,8 +30,8 @@ GNG300 (213), SAD064 (186+184+178), SAD091 (181), SAD109 (179), LHAD1g1
 
 Os tipos que dominam a entrada de DNa02 (LAL = lateral accessory lobe, AOTU =
 anterior optic tubercle, PS0xx, CB0431 = central body) são todos regiões do
-**central complex / circuito de heading** — consistente com a literatura
-sobre DNa02 receber comando de direção do circuito de navegação
+central complex, ligadas ao circuito de heading. Isso é consistente com a
+literatura sobre DNa02 receber comando de direção do circuito de navegação
 (Rayshubskiy et al. 2020; Westeinde et al. 2024), não de detectores de objeto
 do lobo óptico.
 
@@ -48,12 +48,12 @@ do lobo óptico.
 | hDeltaB | central complex | **0** |
 | EPG | central complex, ring attractor (heading) | **0** |
 
-**LC10a não aparece em DNa02 nem em Giant Fiber — a hipótese de trabalho
-original (LC10a→DNa02) é refutada pelos dados.** PFL3 aparece com peso
+LC10a não aparece em DNa02 nem em Giant Fiber: a hipótese de trabalho
+original (LC10a→DNa02) é refutada pelos dados. PFL3 aparece com peso
 comparável ao que depois encontramos para LC10a→DNa10 (ver seção 3), mas PFL3
-é um neurônio de heading do central complex — não codifica posição retinotópica
-de um objeto, então não é um substituto direto adequado pra "rastrear a bola",
-mesmo estando de fato conectado.
+é um neurônio de heading do central complex, não codifica posição
+retinotópica de um objeto, então não é um substituto direto adequado pra
+"rastrear a bola", mesmo estando conectado.
 
 ## 3. Pra onde LC10a projeta de verdade
 
@@ -70,14 +70,14 @@ mesmo estando de fato conectado.
 | LT52 | 12 858 | 34 |
 | (…mais AOTU0xx…) | | |
 
-A esmagadora maioria da saída de LC10a vai pro **AOTU** (anterior optic
-tubercle) — bate exatamente com a via de corte de Ribeiro et al. 2018
-(LC10a → AOTU → bulb → central complex), que é **polissináptica** (passa
+A esmagadora maioria da saída de LC10a vai pro AOTU (anterior optic
+tubercle), o que bate exatamente com a via de corte de Ribeiro et al. 2018
+(LC10a → AOTU → bulb → central complex). Essa via é polissináptica (passa
 pelo central complex inteiro antes de qualquer coisa parecida com controle
 motor), não um circuito de 1-2 saltos como o resto deste projeto usa.
 
-Candidatos descendentes (prefixo DN) entre os alvos de LC10a — peso bem menor
-que AOTU, mas os únicos não-zero encontrados:
+Candidatos descendentes (prefixo DN) entre os alvos de LC10a, com peso bem
+menor que AOTU, mas os únicos não-zero encontrados:
 
 | tipo descendente | peso total | nº de neurônios-alvo |
 |---|---|---|
@@ -93,7 +93,7 @@ DNa10 é o candidato mais forte: 801 sinapses via só 2 neurônios-alvo (um par
 bilateral limpo, ver seção 4), ordens de grandeza acima dos outros
 candidatos e não-zero (diferente de LC4/LPLC2→DNa02).
 
-## 4. DNa10 — o candidato escolhido
+## 4. DNa10: o candidato escolhido
 
 | bodyId | tipo | instance |
 |---|---|---|
@@ -108,12 +108,12 @@ split motor por lateralidade.
 | 10379 (R) | 15 146 | 424 | 2.8% |
 | 523329 (L) | 15 078 | 377 | 2.5% |
 
-LC10a é uma fração pequena (~2.7%) do input total de DNa10 — o resto vem
-principalmente de PLP213, AOTU063_a/b, PS200, PS355, IB117/IB018 (de novo,
-região de integração multissensorial/central complex-adjacente). **Isto é
-reportado honestamente: DNa10 não é um canal visual "limpo" dominado por
-LC10a — é uma conexão real e não-trivial, mas minoritária frente ao resto do
-input de DNa10 que este projeto não modela.**
+LC10a é uma fração pequena (~2.7%) do input total de DNa10; o resto vem
+principalmente de PLP213, AOTU063_a/b, PS200, PS355, IB117/IB018, de novo
+região de integração multissensorial/central complex-adjacente. DNa10 não é
+um canal visual "limpo" dominado por LC10a: é uma conexão real e não-trivial,
+mas minoritária frente ao resto do input de DNa10 que este projeto não
+modela.
 
 ## 5. Confirmação da cadeia completa (photoreceptor → ... → DNa10)
 
@@ -128,8 +128,8 @@ caminho tem aresta em todo elo, não só nas pontas:
 | T4 (motion) | 1 |
 | Tm3, Tm5Y, TmY21, Li22, LC9, LC10c-1/2 (não incluídos) | (maior peso, mas fora do escopo atual) |
 
-**Confirmado: `interneuron` (especificamente Tm4) → `LC10a` → `DNa10` tem
-aresta real e substancial em todo elo da cadeia** (Tm4→LC10a: 2657; LC10a→
+Confirmado: `interneuron` (especificamente Tm4) → `LC10a` → `DNa10` tem
+aresta real e substancial em todo elo da cadeia (Tm4→LC10a: 2657; LC10a→
 DNa10: 801). O papel `target` (LC10a) foi adicionado ao `fetch_connectome.py`
 com esse resultado.
 

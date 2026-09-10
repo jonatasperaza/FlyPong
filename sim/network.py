@@ -51,6 +51,14 @@ class ConnectomeNetwork:
         self.target_idx = self.role_idx.get("target", np.array([], dtype=int))
         self.descending_idx = self.role_idx.get("descending", np.array([], dtype=int))
         self.dopaminergic_idx = self.role_idx.get("dopaminergic", np.array([], dtype=int))
+        # Subconjunto de `descending` cujo tipo e DNa10 -- usado no Achado 13
+        # pra testar diretamente a hipotese do Achado 8 (canal LC10a->DNa10
+        # fraco): injeta um sinal sintetico so nesses neuronios, sem tocar
+        # nas Giant Fiber. Vazio se nao houver DNa10 no subgrafo (ex. dados
+        # sinteticos, que nao distinguem sub-populacoes de descending).
+        desc_types = self.neurons_df["type"].astype(str).to_numpy()
+        is_dna10 = np.array([t.startswith("DNa10") for t in desc_types[self.descending_idx]])
+        self.dna10_idx = self.descending_idx[is_dna10]
         self.photoreceptor_positions = self._compute_photoreceptor_positions()
 
         self.motor_up_idx, self.motor_down_idx = self._compute_motor_groups()
