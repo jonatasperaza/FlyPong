@@ -1,0 +1,6 @@
+connectome_data/*.parquet
+connectome_data/*.npz
+runs/
+__pycache__/
+*.pyc
+.venv/

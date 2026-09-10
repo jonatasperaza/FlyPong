@@ -1,0 +1,6 @@
+numpy
+scipy
+pandas
+pyarrow
+pygame
+neuprint-python
