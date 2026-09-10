@@ -8,6 +8,7 @@ tres fatores (Hebbian gated by dopamina, cf. Fremaux & Gerstner 2016) quando
 ha reforco. Todo o resto do grafo permanece fixo.
 """
 import os
+import re
 
 import numpy as np
 import pandas as pd
@@ -47,15 +48,12 @@ class ConnectomeNetwork:
         self.photoreceptor_idx = self.role_idx.get("photoreceptor", np.array([], dtype=int))
         self.motion_idx = self.role_idx.get("motion", np.array([], dtype=int))
         self.object_idx = self.role_idx.get("object", np.array([], dtype=int))
+        self.target_idx = self.role_idx.get("target", np.array([], dtype=int))
         self.descending_idx = self.role_idx.get("descending", np.array([], dtype=int))
         self.dopaminergic_idx = self.role_idx.get("dopaminergic", np.array([], dtype=int))
         self.photoreceptor_positions = self._compute_photoreceptor_positions()
 
-        # Divisao arbitraria (escolha de modelagem, nao um fato biologico) do
-        # pool descendente em dois grupos de leitura motora "sobe"/"desce".
-        half = len(self.descending_idx) // 2
-        self.motor_up_idx = self.descending_idx[:half]
-        self.motor_down_idx = self.descending_idx[half:]
+        self.motor_up_idx, self.motor_down_idx = self._compute_motor_groups()
 
         # PAM = valencia positiva (recompensa), PPL1 = valencia negativa
         # (aversivo), conforme Aso et al. 2014 sobre neuronios dopaminergicos
@@ -84,10 +82,18 @@ class ConnectomeNetwork:
 
         self.W = sp.csr_matrix((weight, (post, pre)), shape=(self.n, self.n))
 
-        motion_object = set(self.motion_idx.tolist()) | set(self.object_idx.tolist())
+        # Plastico = qualquer sinapse de uma via "de detecao" (motion/object/
+        # target) chegando em descending -- generico o bastante pra cobrir os
+        # dois caminhos paralelos confirmados na auditoria real (object->GF,
+        # target->DNa10, Achados 6, 8 e 9), sem hardcodar nomes especificos.
+        upstream_of_descending = (
+            set(self.motion_idx.tolist())
+            | set(self.object_idx.tolist())
+            | set(self.target_idx.tolist())
+        )
         descending_set = set(self.descending_idx.tolist())
         plastic_mask = np.array([
-            (pr in motion_object and po in descending_set)
+            (pr in upstream_of_descending and po in descending_set)
             for pr, po in zip(pre, post)
         ])
         self.plastic_pre = pre[plastic_mask]
@@ -102,6 +108,35 @@ class ConnectomeNetwork:
         self.pre_trace = np.zeros(self.n)
         self.post_trace = np.zeros(self.n)
         self.last_spikes = np.zeros(self.n, dtype=bool)
+
+    def _compute_motor_groups(self):
+        """Divide `descending_idx` em dois grupos de leitura motora usando a
+        lateralidade real (sufixo _R/_L do campo `instance`, ex. "DNa10_R",
+        "DNp01(GF)_L") quando disponivel, em vez de metade/metade por indice
+        (o que causou o Achado 6: por coincidencia colocava neuronios
+        anatomicamente desconectados de um lado so). Mapear
+        esquerda/direita em "sobe"/"desce" de um paddle vertical e uma
+        ESCOLHA DE ENGENHARIA, nao um fato biologico -- controle de direcao
+        de caminhada lateral (o que DNa10/GF realmente codificam) nao e a
+        mesma coisa que posicao vertical de um objeto. Ver README, Achado 9.
+        """
+        n = len(self.descending_idx)
+        if n == 0:
+            return np.array([], dtype=int), np.array([], dtype=int)
+
+        instances = self.neurons_df["instance"].astype(str).to_numpy()[self.descending_idx]
+        is_right = np.array([bool(re.search(r"(_R$|\(R\))", inst)) for inst in instances])
+        is_left = np.array([bool(re.search(r"(_L$|\(L\))", inst)) for inst in instances])
+        n_lateral = int((is_right | is_left).sum())
+
+        if n_lateral == n and n >= 2:
+            return self.descending_idx[is_right], self.descending_idx[is_left]
+
+        print(f"[network] lateralidade (_R/_L) so encontrada em {n_lateral}/{n} neuronios "
+              f"descendentes -- usando metade/metade por indice como fallback "
+              f"(o mesmo esquema arbitrario do Achado 6).")
+        half = n // 2
+        return self.descending_idx[:half], self.descending_idx[half:]
 
     def _compute_photoreceptor_positions(self):
         """Posicao normalizada [0,1] de cada fotorreceptor na "retina" 1D

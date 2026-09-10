@@ -53,7 +53,20 @@ ROLE_TYPE_REGEX = {
     "interneuron": r"L1.*|L2.*|L3.*|L4.*|L5.*|Mi1.*|Mi4.*|Mi9.*|Tm1.*|Tm2.*|Tm4.*|Tm9.*",
     "motion": r"T4.*|T5.*",
     "object": r"LC4|LPLC2",
-    "descending": r"DNa02.*|GF|GiantFiber.*|DNp01.*",
+    # LC10a: neuronio de campo visual pequeno associado a rastreamento de alvo
+    # durante perseguicao de corte (Ribeiro et al., "Visual Projection Neurons
+    # Mediating Directed Courtship in Drosophila", Cell, 2018). Adicionado no
+    # Achado 9 (README) depois de confirmar via auditoria real de conectividade
+    # que e o unico candidato testado com aresta direta e nao-trivial pra um
+    # neuronio descendente (DNa10, 801 sinapses) -- LC4/LPLC2 tinham ZERO
+    # arestas pra DNa02 (Achado 6), e LC10a tambem tem ZERO pra DNa02/GF
+    # (Achado 8): e um canal visual diferente, com alvo descendente diferente.
+    "target": r"LC10a.*",
+    # DNa02 removido (Achado 8: recebe milhares de sinapses reais, mas NENHUMA
+    # de qualquer papel visual selecionado neste subgrafo -- e dominado por
+    # circuito de heading do central complex, PFL3/LAL/AOTU, fora do escopo
+    # deste projeto). DNa10 adicionado: recebe de LC10a (via achado 9).
+    "descending": r"DNa10.*|GF|GiantFiber.*|DNp01.*",
     "dopaminergic": r"PAM.*|PPL1.*",
 }
 
@@ -153,6 +166,7 @@ def fetch_synthetic(seed: int = 0) -> tuple[pd.DataFrame, pd.DataFrame]:
         "interneuron": 200,
         "motion": 260,
         "object": 60,
+        "target": 60,
         "descending": 20,
         "dopaminergic": 30,
     }
@@ -165,10 +179,19 @@ def fetch_synthetic(seed: int = 0) -> tuple[pd.DataFrame, pd.DataFrame]:
         role_ids[role] = ids
         body_id += n
         for i, bid in enumerate(ids):
+            # instance com sufixo _R/_L pra descending, espelhando a
+            # convencao real do neuPrint (ex. "DNa10_R") -- usado pelo split
+            # motor por lateralidade em sim/network.py (Achado 9). Primeira
+            # metade = R, segunda = L, o que aqui coincide com os dois
+            # extremos do eixo retinotopico sintetico (ver conectividade
+            # topografica abaixo), preservando o comportamento de
+            # rastreamento ja validado no gerador sintetico.
+            side = "R" if i < n / 2 else "L"
+            instance = f"synthetic_{role}_{i}_{side}" if role == "descending" else f"synthetic_{role}_{i}"
             rows.append({
                 "bodyId": bid,
                 "type": f"{role}_{i % 8}",
-                "instance": f"synthetic_{role}_{i}",
+                "instance": instance,
                 "status": "Traced",
                 "role": role,
                 # sem somaLocation sintetica -- sim/network.py cai de volta pra
@@ -218,6 +241,12 @@ def fetch_synthetic(seed: int = 0) -> tuple[pd.DataFrame, pd.DataFrame]:
     topographic_bipartite(role_ids["interneuron"], role_ids["motion"], p_peak=0.35, sigma=0.12, wmax=15)
     topographic_bipartite(role_ids["motion"], role_ids["object"], p_peak=0.35, sigma=0.15, wmax=20)
     topographic_bipartite(role_ids["object"], role_ids["descending"], p_peak=0.40, sigma=0.20, wmax=30)
+    # Segundo caminho paralelo (Achado 9): interneuron -> target (LC10a) ->
+    # descending, espelhando a conexao real Tm4 -> LC10a -> DNa10 encontrada
+    # na auditoria de conectividade (docs/achado-8-auditoria-dna02.md).
+    topographic_bipartite(role_ids["interneuron"], role_ids["target"], p_peak=0.35, sigma=0.12, wmax=15)
+    topographic_bipartite(role_ids["target"], role_ids["descending"], p_peak=0.40, sigma=0.20, wmax=30)
+    random_bipartite(role_ids["dopaminergic"], role_ids["target"], p=0.10, wmax=10)
     random_bipartite(role_ids["dopaminergic"], role_ids["motion"], p=0.10, wmax=10)
     random_bipartite(role_ids["dopaminergic"], role_ids["object"], p=0.10, wmax=10)
     random_bipartite(role_ids["dopaminergic"], role_ids["descending"], p=0.10, wmax=10)

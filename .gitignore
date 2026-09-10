@@ -1,6 +1,7 @@
 connectome_data/*.parquet
 connectome_data/*.npz
 runs/
+docs/raw_*.csv
 __pycache__/
 *.pyc
 .venv/
