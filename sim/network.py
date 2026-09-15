@@ -142,6 +142,9 @@ class ConnectomeNetwork:
         # EMAs de frequencia de evento pra "freq_normalized" (Achado 14).
         self.pos_rate_ema = 0.0
         self.neg_rate_ema = 0.0
+        # Diagnostico da Verificacao 1 (README): valor de `scale` a cada
+        # passo em que a plasticidade dispara em modo "freq_normalized".
+        self.plasticity_scale_history = []
 
     def _compute_motor_groups(self):
         """Divide `descending_idx` em dois grupos de leitura motora usando a
@@ -259,6 +262,7 @@ class ConnectomeNetwork:
                 freq = self.pos_rate_ema if effective_dopamine > 0 else self.neg_rate_ema
                 ref = (self.pos_rate_ema + self.neg_rate_ema) / 2.0
                 scale = min(FREQ_NORM_MAX_SCALE, ref / max(freq, FREQ_NORM_EPS))
+                self.plasticity_scale_history.append((scale, 1 if effective_dopamine > 0 else -1))
 
             dw = PLASTIC_LR * effective_dopamine * eligibility * scale
             self.plastic_delta = np.clip(self.plastic_delta + dw, -PLASTIC_DELTA_MAX, PLASTIC_DELTA_MAX)

@@ -718,12 +718,7 @@ plasticidade):
 `freq_normalized` falha de forma decisiva: 0 de 6 seeds ficam melhores que o
 controle, o peso decai mais que a regra original (média 7.33 contra 8.10 do
 Achado 13), e a diferença é estatisticamente significativa na direção
-errada (teste t pareado t(5)=-4.13, p=0.009; teste de sinal p=0.031). A
-normalização por frequência, do jeito que foi implementada, piora o
-problema em vez de corrigi-lo — uma hipótese não confirmada é que a média
-móvel (decaimento 0.999, ~1000 passos pra estabilizar) amplifica ruído no
-início de cada rodada antes de convergir pra uma estimativa de frequência
-confiável, mas isso não foi investigado a fundo.
+errada (teste t pareado t(5)=-4.13, p=0.009; teste de sinal p=0.031).
 
 `tonic_baseline` não falha tão claramente, mas também não funciona: 2 de 6
 seeds melhoram bastante (seed 1 e seed 3, essa última com o peso final
@@ -731,12 +726,7 @@ ficando bem mais perto do valor inicial e a taxa de rebatida subindo pra
 0.869), 3 pioram, 1 fica igual. A diferença média contra o controle é
 essencialmente zero (t(5)=-0.02, p=0.98; teste de sinal 2 de 6, p=0.69) e o
 peso continua decaindo na maioria das seeds, só que com desvio padrão bem
-maior (0.39 contra 0.14 do `freq_normalized`). O resultado da seed 3 é
-chamativo o bastante pra merecer a mesma desconfiança que a seed 2 do
-Achado 13 recebeu antes de virar evidência: não foi auditado se é
-rastreamento genuíno ou outro caso de órbita dinâmica travada (ver Achado
-13, seção de investigação da seed 2, pro método). Fica registrado aqui como
-não verificado, não como achado positivo.
+maior (0.39 contra 0.14 do `freq_normalized`).
 
 **Nenhuma das duas correções passa no critério mínimo** definido antes de
 rodar (o peso final não deveria mais decair sistematicamente abaixo do
@@ -750,18 +740,92 @@ mecanismo de atribuição de crédito da regra de três fatores continua sendo
 um problema em aberto: as duas tentativas mais óbvias de correção não
 resolveram, e uma delas piorou a situação de forma mensurável.
 
-A Fase 4 (comparação com um baseline trivial sem rede neural nenhuma,
-`game/baseline_policy.py`: `action = sign(ball_y - paddle_y)`, mesma
-métrica) foi rodada de qualquer forma, já que é barata e não depende do
-resultado da Fase 3. Nas 6 seeds testadas, o baseline trivial atinge taxa de
-rebatida 1.0 do início ao fim, sempre: por ter latência zero e acesso
-perfeito à posição da bola (sem ruído de disparo, sem os 4 substeps de
-atraso do LIF), ele nunca erra, o que o torna essencialmente imbatível por
-construção. Isso não é reportado como uma derrota do circuito do conectoma:
-a comparação relevante seria o quão perto o circuito chega desse teto, não
-se ele vence, e como a plasticidade não produziu um circuito claramente
-melhor que o baseline sem ela (Achados 10-14), essa comparação de
-proximidade não foi refeita aqui.
+A Fase 4 original (comparação com um baseline trivial sem rede neural
+nenhuma, `game/baseline_policy.py`: `action = sign(ball_y - paddle_y)`,
+mesma métrica) foi rodada de qualquer forma, já que é barata e não depende
+do resultado da Fase 3. Nas 6 seeds testadas, o baseline trivial atinge
+taxa de rebatida 1.0 do início ao fim, sempre: por ter latência zero e
+acesso perfeito à posição da bola (sem ruído de disparo, sem os 4 substeps
+de atraso do LIF), ele nunca erra. Isso não foi reportado como derrota do
+circuito do conectoma naquele momento (a comparação relevante seria o quão
+perto o circuito chega desse teto, não se ele vence) — mas a Verificação 2
+abaixo aprofunda exatamente esse ponto.
+
+#### Três verificações pendentes
+
+**Verificação 1, por que `freq_normalized` piorou tanto:** a hipótese
+inicial era que a média móvel de frequência (`pos_rate_ema`/`neg_rate_ema`)
+cai perto de zero quando um tipo de evento fica raro, inflando o fator
+`scale` até perto do teto (`FREQ_NORM_MAX_SCALE=10.0`) e amplificando
+ruído. Testado instrumentando `scale` a cada passo (`plasticity_scale_history`,
+novo em `sim/network.py`) numa rodada de 15 000 frames: **hipótese
+refutada**. O valor de `scale` nunca passa de 2.17 em 59 170 amostras
+(mediana 1.16, média 1.15), nunca chega perto do teto de 10.0. Mais
+especificamente, `scale` até se comporta na direção pretendida quando
+separado por sinal da dopamina: média 1.17 quando positiva (amplifica
+reforço de acerto) e 0.76 quando negativa (atenua reforço de erro), o
+oposto de "amplificar ruído indiscriminadamente". Mesmo assim o peso final
+decai mais que a regra original. A explicação mais provável, não
+aprofundada por decisão de escopo (a instrução original era não gastar mais
+tempo ajustando o teto se essa hipótese caísse), é que a elegibilidade
+(`pre_trace × post_spike`) tende a ser maior durante os eventos de dopamina
+negativa do que durante os positivos, então mesmo com menos ocorrências e
+um fator `scale` menor por ocorrência, a contribuição agregada dos eventos
+negativos ainda domina. Não foi testado ajustar `FREQ_NORM_MAX_SCALE` pra
+valores mais conservadores (2.0, 3.0), porque o teto nunca era o fator
+limitante pra começo de conversa.
+
+**Verificação 2, um baseline justo (`game/baseline_policy.py`,
+`run_delayed_linear_baseline`):** implementado sujeitando o baseline
+trivial às mesmas duas restrições do circuito real — atraso de 1 frame
+(aproximando quantos frames um estímulo leva pra atravessar a cadeia
+sináptica completa dado o orçamento de 4 substeps por frame) e leitura só
+através do mesmo estímulo populacional que os fotorreceptores recebem
+(`ball_to_photoreceptor_stimulus`, resolução de 1783 posições, igual ao
+subgrafo real), em vez de `ball_y` exato. **Resultado: nas 6 seeds
+testadas, o baseline com essas duas restrições continua acertando 1.0 do
+início ao fim, idêntico ao baseline sem restrição nenhuma.** As duas
+limitações pedidas, embora reais, não bastam pra equalizar a comparação:
+`PADDLE_SPEED=4` px/frame já é mais rápido que a componente vertical típica
+da velocidade da bola, e 1783 posições de retina são muito mais resolução
+do que o necessário pra distinguir a direção certa em qualquer situação não
+patológica. Um controlador `sign()` linear fica com a direção certa mesmo
+com essas duas limitações, porque nenhuma delas ataca o gargalo real do
+circuito neural: o readout de só 2 neurônios por grupo, com contagem de
+spike ruidosa e binária (Achados 6, 9, 13), não a resolução sensorial ou o
+atraso temporal. **Este é o achado mais importante das três verificações**:
+ele mostra que "atraso" e "resolução sensorial" não são o que torna o
+circuito do conectoma mais difícil de acertar que uma regra de 1 linha — o
+gargalo está inteiramente do lado motor, algo que nenhum baseline linear
+simples consegue replicar sem também ficar artificialmente ruidoso do
+mesmo jeito. A comparação "circuito real vs. baseline justo" continua sem
+uma resposta genuinamente informativa: um baseline que reproduzisse
+fielmente esse gargalo de leitura deixaria de ser uma "regra de 1 linha" e
+passaria a ser, na prática, uma reimplementação do problema.
+
+**Verificação 3, auditoria da seed 3 do `tonic_baseline`:** rodada com o
+mesmo método do Achado 13 (trajetória completa, sequência de eventos,
+correlação entre janelas distantes no tempo). **Resultado diferente da
+seed 2 do Achado 13**: a correlação entre janelas distantes
+([6000,7500) vs. [10000,11500)) é de apenas -0.11 (contra -0.9999 da seed 2
+do Achado 13), e a posição da bola varia por quase toda a altura da tela
+(0 a 312 de 320px), não presa numa faixa estreita. Não é uma órbita
+travada. Mas também não é aprendizado limpo e sustentado: dos 84 eventos
+totais (35 bounces, 49 misses), há uma sequência real de 22 rebatidas
+consecutivas no meio da rodada (índices 56-77), seguida de 6 misses
+consecutivos bem no final (índices 78-83) — a rodada termina em queda, não
+em platô. A taxa de rebatida "fim" (0.869) reflete a janela móvel de 20
+eventos anteriores, que ainda captura a maior parte da sequência boa de
+22 antes dos misses finais, o que é matematicamente consistente, não um
+erro de cálculo. Rodando a mesma seed 3 com a regra original (controle,
+`LR=0`): delta -0.01, sem evidência de aprendizado, confirmando que a seed
+não era estruturalmente fácil por si só. **Conclusão: o resultado da seed 3
+é real, não um artefato de órbita travada, mas também não é evidência de
+aprendizado estável** — é uma janela de bom desempenho que não se sustentou
+até o fim da rodada. Isso não muda a conclusão agregada do `tonic_baseline`
+(ainda não-significativo, p=0.98), só esclarece que a alta variância vem de
+episódios reais de desempenho instável, não de um bug de contagem como na
+seed 2 do Achado 13.
 
 Reproduzir:
 
@@ -830,12 +894,23 @@ python -m game.baseline_policy
   Achado 13, Fase 2. **(Tentativa de correção no Achado 14, sem sucesso)**:
   duas opções (`freq_normalized`, `tonic_baseline`) foram implementadas e
   testadas no mesmo canal isolado; uma piora o problema de forma
-  estatisticamente significativa (p=0.009), a outra não tem efeito líquido
-  distinguível de ruído (p=0.98). O mecanismo de atribuição de crédito
-  continua sem correção funcional conhecida; normalizar pela frequência de
-  eventos e usar linha de base não-zero, as duas ideias mais óbvias, já
-  foram tentadas e descartadas, não são mais recomendação de trabalho
-  futuro em aberto.
+  estatisticamente significativa (p=0.009, e essa piora não vem do teto de
+  escala saturando como a hipótese inicial supunha, refutado por
+  instrumentação direta), a outra não tem efeito líquido distinguível de
+  ruído (p=0.98, com variância alta explicada por episódios reais de
+  desempenho instável numa seed auditada, não por artefato de órbita
+  travada). O mecanismo de atribuição de crédito continua sem correção
+  funcional conhecida; normalizar pela frequência de eventos e usar linha
+  de base não-zero, as duas ideias mais óbvias, já foram tentadas e
+  descartadas, não são mais recomendação de trabalho futuro em aberto.
+- Um baseline linear sem rede neural, mesmo sujeito a atraso de 1 frame e
+  resolução sensorial igual à do subgrafo real (`game/baseline_policy.py`,
+  `run_delayed_linear_baseline`), continua acertando 100% em todas as
+  seeds testadas: essas duas restrições não equalizam a comparação porque
+  o gargalo real do circuito neural é o readout de poucos neurônios do
+  lado motor, não a resolução sensorial ou o atraso. Não existe ainda uma
+  comparação "circuito real vs. baseline" que seja genuinamente informativa
+  nesse sentido.
 - O oponente (paddle direito) é uma IA que nunca erra; serve só pra manter a
   bola em jogo, não é um adversário real.
 
