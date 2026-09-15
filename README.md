@@ -10,7 +10,7 @@ consciência ou senciência. É um modelo computacional aproximado: um pequeno
 subgrafo do conectoma real, simulado como neurônios leaky integrate-and-fire
 (LIF), recebendo um estímulo sensorial derivado da posição da bola e lido por
 um readout motor simples. A seção [Validação](#validação-honesta) reporta os
-resultados reais dos testes com dados reais do MaleCNS v1.0, ao longo de 14
+resultados reais dos testes com dados reais do MaleCNS v1.0, ao longo de 15
 achados: bugs encontrados e corrigidos, hipóteses testadas e descartadas ou
 confirmadas, uma correção pós-hoc de um resultado que parecia bom demais e
 não era (Achado 13), e duas tentativas de corrigir um viés de plasticidade
@@ -41,7 +41,7 @@ antes de escrever código: é um checklist prático extraído dos bugs e
 armadilhas reais que apareceram construindo este projeto (regex fullmatch do
 neuPrint, camadas anatômicas escondidas, dados espaciais que não existem
 prontos, RNGs acoplados sem querer, etc.), organizado por etapa do trabalho,
-não pela ordem cronológica dos 14 achados abaixo.
+não pela ordem cronológica dos 15 achados abaixo.
 
 ## Inspiração / trabalhos relacionados
 
@@ -844,6 +844,114 @@ print(r.validation_report())
 python -m game.baseline_policy
 ```
 
+### Achado 15 (o peso-teto real é ~4,5x maior que o usado em todos os experimentos de plasticidade)
+
+A Verificação 2 do Achado 14 mostrou que nenhum baseline "justo" (com atraso
+e resolução sensorial equivalentes) consegue reproduzir o gargalo real do
+circuito, que está no readout de poucos neurônios, não na informação
+sensorial. Essa rodada respondeu uma pergunta diferente, sem precisar de
+baseline externo: dentro da própria arquitetura de sinapse com peso (o mesmo
+mecanismo `W.dot(spikes)` que a plasticidade usa, não a injeção de corrente
+direta do Achado 13 Fase 1), qual é o melhor desempenho possível com peso
+fixo, e a regra de aprendizado consegue chegar perto disso?
+
+**Fase 1 (varredura grosseira, 2 seeds, `LR=0`):**
+
+| peso | média (2 seeds) | valores |
+|---|---|---|
+| 2 | 0.247 | 0.306, 0.188 |
+| 4 | 0.284 | 0.265, 0.302 |
+| 6 | 0.279 | 0.288, 0.270 |
+| 8 | 0.349 | 0.388, 0.310 |
+| 8.93 | 0.314 | 0.293, 0.334 |
+| 10 | 0.389 | 0.425, 0.353 |
+| 12 | 0.475 | 0.270, 0.679 |
+| 15 | 0.617 | 0.352, 0.883 |
+| 20 | 0.666 | 0.401, 0.930 |
+| 30 | 0.757 | 0.578, 0.937 |
+| 35 | 0.769 | 0.537, 1.000 |
+| 40 | 0.982 | 0.964, 1.000 |
+| 50 | 1.000 | 1.000, 1.000 |
+
+A média sobe de forma monotônica com o peso, sem sinal de platô até perto
+de 30-35, e satura perto de 1.0 (o mesmo teto do baseline trivial oráculo)
+só a partir de 40. A grade original do plano (até 30) não teria capturado
+isso; dois pesos extras (40 e 50) precisaram ser testados pra confirmar a
+saturação.
+
+**Fase 2 (refinamento, 6 seeds completas, pesos 35 e 40):**
+
+| peso | média (6 seeds) | desvio padrão | valores |
+|---|---|---|---|
+| 35 | 0.883 | 0.178 | 0.537, 1.000, 0.863, 1.000, 0.984, 0.913 |
+| 40 | 0.994 | 0.015 | 0.964, 1.000, 1.000, 1.000, 1.000, 1.000 |
+
+Peso 35 satura em 4 das 6 seeds mas fica bem abaixo nas outras duas
+(0.537 e 0.863), variância alta. Peso 40 é uniformemente quase perfeito
+nas 6 seeds (desvio padrão de só 0.015). **`SYNTHETIC_W_INIT=40` é o
+peso-teto prático** — o maior valor testado onde o desempenho já não
+melhora de forma relevante (50 dá exatamente o mesmo resultado que 40, sem
+diferença).
+
+**Comparação central: 40 contra os 8.93 usados em todos os experimentos de
+plasticidade dos Achados 13 e 14 — uma razão de 4,48x.** Isso muda a leitura
+retroativa desses achados: o "controle de peso fixo" usado lá (8.93,
+média 0.314 na varredura desta rodada) nunca esteve perto do melhor
+desempenho possível dessa arquitetura — não invalida a conclusão sobre a
+regra de plasticidade em si (o decaimento sistemático e a falha das duas
+correções continuam sendo resultados válidos, medidos corretamente contra
+o controle que foi de fato usado), mas significa que "controle sem
+plasticidade" nos Achados 13-14 não era o melhor controle possível. Mais
+crítico ainda: com `PLASTIC_DELTA_MAX=3.0`, a plasticidade partindo de 8.93
+só alcança o intervalo `[5.93, 11.93]` — mesmo no melhor caso hipotético
+(toda atualização de peso na direção certa, sem nenhum decaimento), a regra
+de plasticidade como configurada nos Achados 13-14 **nunca poderia chegar
+perto do peso-teto de 40**, o teto de delta é pequeno demais pra isso,
+independente de qualquer correção de viés.
+
+**Fase 3 (plasticidade partindo do peso-teto) não foi executada.** A Fase 1
+e a Fase 2 já demandaram mais compute do que o planejado (a varredura
+precisou ser estendida de 30 até 50 pra encontrar a saturação, e um
+processo de varredura em loop único foi morto duas vezes por falta de
+memória do sistema, exigindo trocar pra um processo Python separado por
+combinação peso/seed — mais lento, mas resistente a isso). A Fase 3 (18
+execuções: 3 modos de plasticidade × 6 seeds) foi cancelada pelo usuário
+antes de qualquer resultado ser produzido, por restrição de tempo. Nenhum
+dado da Fase 3 existe; não é um resultado negativo, é trabalho não feito,
+registrado como tal. A pergunta que a Fase 3 responderia — se a plasticidade
+consegue se manter perto do peso-teto partindo dele, ou se decai pra longe
+mesmo do ótimo — continua em aberto.
+
+**Interpretação honesta:** o achado mais forte e já confirmado desta rodada
+não depende da Fase 3: o teto de desempenho da arquitetura de readout (com
+peso fixo, mecanismo de sinapse normal) é muito mais alto do que qualquer
+experimento de plasticidade deste projeto chegou perto de testar. Isso não
+significa que a plasticidade funcionaria se partisse do peso-teto — essa é
+exatamente a pergunta que ficou sem resposta —, mas significa que o teto de
+delta usado (`PLASTIC_DELTA_MAX=3.0`) é pequeno demais pra alcançar esse
+ponto vindo de 8.93 de qualquer jeito, então os Achados 13-14 nunca tiveram
+a chance de testar aprendizado perto do ótimo, só longe dele. Ver
+Limitações abaixo pra como isso reformula a leitura desses achados sem
+invalidar as conclusões já publicadas lá.
+
+Reproduzir a Fase 1/2 (uma combinação peso/seed por vez, em processo
+separado — evita o problema de memória visto ao rodar tudo num loop só):
+
+```bash
+python -c "
+import sim.network as netmod
+netmod.PLASTIC_LR = 0.0
+from game.pong import PongGame
+import main
+main.SYNTHETIC_W_INIT = 40  # trocar pelo peso a testar
+r = main.FlyPongRunner(main.DATA_DIR, signal_mode='synthetic_plastic')
+r.game = PongGame(seed=42)
+for _ in range(15000): r.step_frame()
+import numpy as np
+print(r.validation_report(), 'media geral:', np.mean(r.bounce_rate_curve))
+"
+```
+
 ## Limitações conhecidas
 
 - (Histórico, corrigido no Achado 9) O pool `descending` original tinha só
@@ -911,6 +1019,19 @@ python -m game.baseline_policy
   lado motor, não a resolução sensorial ou o atraso. Não existe ainda uma
   comparação "circuito real vs. baseline" que seja genuinamente informativa
   nesse sentido.
+- **(Achado 15, reformula retroativamente os Achados 13 e 14)** O controle
+  de peso fixo usado em todos os experimentos de plasticidade (`8.93`) fica
+  a só 0.314 de média na varredura de peso, longe do peso-teto real (`40`,
+  média 0.994) — uma razão de 4.48x. As conclusões sobre a regra de
+  plasticidade em si continuam válidas (medidas corretamente contra o
+  controle que foi de fato usado), mas "controle sem plasticidade" nos
+  Achados 13-14 não era o melhor controle possível dessa arquitetura. Mais
+  relevante: com `PLASTIC_DELTA_MAX=3.0`, a plasticidade partindo de 8.93
+  só alcança `[5.93, 11.93]`, nunca perto do peso-teto de 40, mesmo no
+  melhor caso hipotético. Se a plasticidade funcionaria partindo do
+  peso-teto é uma pergunta em aberto — a Fase 3 do Achado 15 que
+  responderia isso foi cancelada por restrição de tempo antes de produzir
+  qualquer resultado, não é um achado negativo, é trabalho não feito.
 - O oponente (paddle direito) é uma IA que nunca erra; serve só pra manter a
   bola em jogo, não é um adversário real.
 
