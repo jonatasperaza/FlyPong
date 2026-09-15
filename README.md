@@ -10,10 +10,11 @@ consciência ou senciência. É um modelo computacional aproximado: um pequeno
 subgrafo do conectoma real, simulado como neurônios leaky integrate-and-fire
 (LIF), recebendo um estímulo sensorial derivado da posição da bola e lido por
 um readout motor simples. A seção [Validação](#validação-honesta) reporta os
-resultados reais dos testes com dados reais do MaleCNS v1.0, ao longo de 13
+resultados reais dos testes com dados reais do MaleCNS v1.0, ao longo de 14
 achados: bugs encontrados e corrigidos, hipóteses testadas e descartadas ou
-confirmadas, e uma correção pós-hoc de um resultado que parecia bom demais e
-não era (Achado 13).
+confirmadas, uma correção pós-hoc de um resultado que parecia bom demais e
+não era (Achado 13), e duas tentativas de corrigir um viés de plasticidade
+que não funcionaram (Achado 14).
 
 Resumo final: o circuito real consegue rastrear a bola e responder com
 direção correta (Achado 9), e um sinal forte fixo no ponto certo do circuito
@@ -24,8 +25,12 @@ com dados reais em nenhuma das variantes testadas (reforço esparso, denso,
 ou um canal sintético isolado já forte o bastante). O Achado 13 (Fase 2)
 aponta uma causa mecanicista específica para isso, a regra de três fatores
 enfraquece sinapses sistematicamente porque eventos de reforço negativo são
-mais frequentes que positivos numa rodada típica, documentada mas não
-corrigida nesta rodada.
+mais frequentes que positivos numa rodada típica. Duas correções óbvias pra
+esse viés (normalizar pela frequência de eventos, ou usar uma linha de base
+de reforço não-zero) foram implementadas e testadas no Achado 14: uma piora
+o problema de forma estatisticamente significativa, a outra não tem efeito
+líquido distinguível de ruído. O mecanismo de atribuição de crédito da regra
+de três fatores continua sem correção funcional conhecida.
 
 ## Para quem quer replicar
 
@@ -36,7 +41,7 @@ antes de escrever código: é um checklist prático extraído dos bugs e
 armadilhas reais que apareceram construindo este projeto (regex fullmatch do
 neuPrint, camadas anatômicas escondidas, dados espaciais que não existem
 prontos, RNGs acoplados sem querer, etc.), organizado por etapa do trabalho,
-não pela ordem cronológica dos 13 achados abaixo.
+não pela ordem cronológica dos 14 achados abaixo.
 
 ## Inspiração / trabalhos relacionados
 
@@ -675,6 +680,106 @@ print(r.validation_report())
 "
 ```
 
+### Achado 14 (correção do viés de plasticidade: duas tentativas, nenhuma funcionou)
+
+O Achado 13 (Fase 2) isolou a causa exata do decaimento sistemático: eventos
+de reforço negativo são mais frequentes que positivos numa rodada típica, e
+a regra de três fatores não compensa isso. Diferente dos achados anteriores,
+este tinha um alvo de correção concreto, não uma limitação estrutural sem
+solução óbvia. Duas correções foram implementadas em `sim/network.py`, como
+modos selecionáveis via `PLASTICITY_MODE` (`"original"` continua sendo o
+padrão e reproduz exatamente os números dos Achados 10-13, verificado
+recomputando a seed 42 do controle e conferindo bit a bit contra o valor já
+publicado):
+
+- `"freq_normalized"`: cada atualização de peso é escalada pelo inverso da
+  frequência recente do tipo de evento que a gerou, via médias móveis
+  exponenciais (`FREQ_EMA_DECAY=0.999`) das taxas de disparo positiva e
+  negativa, capada em `FREQ_NORM_MAX_SCALE=10.0`.
+- `"tonic_baseline"`: um viés tônico positivo constante (`TONIC_BIAS=0.05`)
+  é somado ao `dopamine_level` antes de cada atualização, pra que a ausência
+  de eventos não puxe o peso pra baixo por padrão.
+
+Testado no mesmo testbed isolado do Achado 13 Fase 2 (canal sintético,
+`SYNTHETIC_W_INIT=8.93`, `LR=0.02`, 6 seeds, 15 000 frames), contra o mesmo
+controle já documentado (peso travado em 8.93, `LR=0`, reaproveitado do
+Achado 13 sem re-rodar, já que por construção não depende do modo de
+plasticidade):
+
+| seed | delta controle | delta `freq_normalized` | peso final | delta `tonic_baseline` | peso final |
+|---|---|---|---|---|---|
+| 42 | -0.177 | -0.323 | 7.33 | -0.178 | 7.45 |
+| 1  | +0.051 | -0.159 | 7.56 | +0.309 | 9.30 |
+| 2  | +0.293 | -0.203 | 7.10 | -0.203 | 6.98 |
+| 3  | -0.010 | -0.099 | 7.31 | +0.596 | 8.52 |
+| 4  | -0.029 | -0.273 | 7.20 | -0.241 | 7.40 |
+| 5  | +0.065 | -0.164 | 7.46 | -0.112 | 7.16 |
+
+`freq_normalized` falha de forma decisiva: 0 de 6 seeds ficam melhores que o
+controle, o peso decai mais que a regra original (média 7.33 contra 8.10 do
+Achado 13), e a diferença é estatisticamente significativa na direção
+errada (teste t pareado t(5)=-4.13, p=0.009; teste de sinal p=0.031). A
+normalização por frequência, do jeito que foi implementada, piora o
+problema em vez de corrigi-lo — uma hipótese não confirmada é que a média
+móvel (decaimento 0.999, ~1000 passos pra estabilizar) amplifica ruído no
+início de cada rodada antes de convergir pra uma estimativa de frequência
+confiável, mas isso não foi investigado a fundo.
+
+`tonic_baseline` não falha tão claramente, mas também não funciona: 2 de 6
+seeds melhoram bastante (seed 1 e seed 3, essa última com o peso final
+ficando bem mais perto do valor inicial e a taxa de rebatida subindo pra
+0.869), 3 pioram, 1 fica igual. A diferença média contra o controle é
+essencialmente zero (t(5)=-0.02, p=0.98; teste de sinal 2 de 6, p=0.69) e o
+peso continua decaindo na maioria das seeds, só que com desvio padrão bem
+maior (0.39 contra 0.14 do `freq_normalized`). O resultado da seed 3 é
+chamativo o bastante pra merecer a mesma desconfiança que a seed 2 do
+Achado 13 recebeu antes de virar evidência: não foi auditado se é
+rastreamento genuíno ou outro caso de órbita dinâmica travada (ver Achado
+13, seção de investigação da seed 2, pro método). Fica registrado aqui como
+não verificado, não como achado positivo.
+
+**Nenhuma das duas correções passa no critério mínimo** definido antes de
+rodar (o peso final não deveria mais decair sistematicamente abaixo do
+valor inicial). Por isso a Fase 3 (aplicar a correção no circuito real) não
+foi executada — decisão prevista desde a especificação desta rodada pro
+caso de as duas opções falharem no teste isolado, mais barato. O canal
+sintético, que a Fase 1 do Achado 13 já tinha mostrado ser forte o bastante
+pra sustentar bom desempenho com peso fixo, continua perdendo desempenho
+quando a plasticidade é ligada, com as duas correções tentadas aqui. O
+mecanismo de atribuição de crédito da regra de três fatores continua sendo
+um problema em aberto: as duas tentativas mais óbvias de correção não
+resolveram, e uma delas piorou a situação de forma mensurável.
+
+A Fase 4 (comparação com um baseline trivial sem rede neural nenhuma,
+`game/baseline_policy.py`: `action = sign(ball_y - paddle_y)`, mesma
+métrica) foi rodada de qualquer forma, já que é barata e não depende do
+resultado da Fase 3. Nas 6 seeds testadas, o baseline trivial atinge taxa de
+rebatida 1.0 do início ao fim, sempre: por ter latência zero e acesso
+perfeito à posição da bola (sem ruído de disparo, sem os 4 substeps de
+atraso do LIF), ele nunca erra, o que o torna essencialmente imbatível por
+construção. Isso não é reportado como uma derrota do circuito do conectoma:
+a comparação relevante seria o quão perto o circuito chega desse teto, não
+se ele vence, e como a plasticidade não produziu um circuito claramente
+melhor que o baseline sem ela (Achados 10-14), essa comparação de
+proximidade não foi refeita aqui.
+
+Reproduzir:
+
+```bash
+python -c "
+import sim.network as netmod
+netmod.PLASTIC_LR = 0.02
+netmod.PLASTICITY_MODE = 'tonic_baseline'  # ou 'freq_normalized'
+from game.pong import PongGame
+import main
+r = main.FlyPongRunner(main.DATA_DIR, signal_mode='synthetic_plastic')
+r.game = PongGame(seed=42)
+for _ in range(15000): r.step_frame()
+print(r.validation_report())
+"
+python -m game.baseline_policy
+```
+
 ## Limitações conhecidas
 
 - (Histórico, corrigido no Achado 9) O pool `descending` original tinha só
@@ -722,9 +827,15 @@ print(r.validation_report())
   tem um viés estrutural de enfraquecer sinapses ao longo de uma rodada
   típica, porque eventos de reforço negativo (bola perdida) são mais
   frequentes que positivos (bola rebatida), confirmado isoladamente no
-  Achado 13, Fase 2. Não foi corrigido nesta rodada (ex. normalizar pela
-  frequência de eventos, ou usar linha de base de reforço não-zero); fica
-  como recomendação de trabalho futuro, não como bug ainda a caçar.
+  Achado 13, Fase 2. **(Tentativa de correção no Achado 14, sem sucesso)**:
+  duas opções (`freq_normalized`, `tonic_baseline`) foram implementadas e
+  testadas no mesmo canal isolado; uma piora o problema de forma
+  estatisticamente significativa (p=0.009), a outra não tem efeito líquido
+  distinguível de ruído (p=0.98). O mecanismo de atribuição de crédito
+  continua sem correção funcional conhecida; normalizar pela frequência de
+  eventos e usar linha de base não-zero, as duas ideias mais óbvias, já
+  foram tentadas e descartadas, não são mais recomendação de trabalho
+  futuro em aberto.
 - O oponente (paddle direito) é uma IA que nunca erra; serve só pra manter a
   bola em jogo, não é um adversário real.
 

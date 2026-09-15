@@ -30,6 +30,29 @@ PLASTIC_LR = 0.02
 # dados reais do MaleCNS v1.0 -- ver README).
 PLASTIC_DELTA_MAX = 3.0
 
+# Achado 13 (Fase 2) encontrou um vies estrutural na regra acima: eventos de
+# reforco negativo (bola perdida) sao mais frequentes que positivos (bola
+# rebatida) numa rodada tipica, entao o peso plastico decai sistematicamente
+# mesmo partindo de um valor ja forte o bastante pra jogar bem. Duas
+# correcoes candidatas, selecionaveis via PLASTICITY_MODE sem remover a
+# regra original (que continua sendo o resultado documentado nos Achados
+# 10-13 e precisa continuar reproduzivel com PLASTICITY_MODE="original"):
+#
+# - "freq_normalized": cada atualizacao de peso e escalada pelo inverso da
+#   frequencia recente do tipo de evento (positivo/negativo) que a gerou,
+#   via medias moveis exponenciais de pos_rate/neg_rate, pra que o efeito
+#   acumulado de longo prazo dos dois tipos fique balanceado mesmo se um
+#   for mais raro que o outro.
+# - "tonic_baseline": um viés tonico positivo constante e somado ao
+#   dopamine_level antes de calcular a atualizacao, entao a AUSENCIA de
+#   eventos nao puxa o peso pra baixo por padrao -- so um excesso de
+#   reforco negativo alem dessa linha de base deveria fazer isso.
+PLASTICITY_MODE = "original"  # "original" | "freq_normalized" | "tonic_baseline"
+FREQ_EMA_DECAY = 0.999
+FREQ_NORM_MAX_SCALE = 10.0
+FREQ_NORM_EPS = 1e-4
+TONIC_BIAS = 0.05
+
 
 class ConnectomeNetwork:
     def __init__(self, data_dir):
@@ -116,6 +139,9 @@ class ConnectomeNetwork:
         self.pre_trace = np.zeros(self.n)
         self.post_trace = np.zeros(self.n)
         self.last_spikes = np.zeros(self.n, dtype=bool)
+        # EMAs de frequencia de evento pra "freq_normalized" (Achado 14).
+        self.pos_rate_ema = 0.0
+        self.neg_rate_ema = 0.0
 
     def _compute_motor_groups(self):
         """Divide `descending_idx` em dois grupos de leitura motora usando a
@@ -196,6 +222,8 @@ class ConnectomeNetwork:
         self.pre_trace[:] = 0.0
         self.post_trace[:] = 0.0
         self.last_spikes[:] = False
+        self.pos_rate_ema = 0.0
+        self.neg_rate_ema = 0.0
 
     def step(self, external_current):
         """external_current deve incluir qualquer estimulo de reforco nos
@@ -214,12 +242,25 @@ class ConnectomeNetwork:
         pos_rate = spikes[self.dopamine_positive_idx].mean() if len(self.dopamine_positive_idx) else 0.0
         neg_rate = spikes[self.dopamine_negative_idx].mean() if len(self.dopamine_negative_idx) else 0.0
         self.dopamine_level = self.dopamine_level * DOPAMINE_DECAY + (pos_rate - neg_rate)
+        self.pos_rate_ema = self.pos_rate_ema * FREQ_EMA_DECAY + pos_rate * (1 - FREQ_EMA_DECAY)
+        self.neg_rate_ema = self.neg_rate_ema * FREQ_EMA_DECAY + neg_rate * (1 - FREQ_EMA_DECAY)
 
-        if len(self.plastic_data_idx) and PLASTIC_LR != 0.0 and abs(self.dopamine_level) > 1e-4:
+        effective_dopamine = self.dopamine_level
+        if PLASTICITY_MODE == "tonic_baseline":
+            effective_dopamine = self.dopamine_level + TONIC_BIAS
+
+        if len(self.plastic_data_idx) and PLASTIC_LR != 0.0 and abs(effective_dopamine) > 1e-4:
             pre_active = self.pre_trace[self.plastic_pre]
             post_spiked = spikes[self.plastic_post].astype(np.float64)
             eligibility = pre_active * post_spiked
-            dw = PLASTIC_LR * self.dopamine_level * eligibility
+
+            scale = 1.0
+            if PLASTICITY_MODE == "freq_normalized":
+                freq = self.pos_rate_ema if effective_dopamine > 0 else self.neg_rate_ema
+                ref = (self.pos_rate_ema + self.neg_rate_ema) / 2.0
+                scale = min(FREQ_NORM_MAX_SCALE, ref / max(freq, FREQ_NORM_EPS))
+
+            dw = PLASTIC_LR * effective_dopamine * eligibility * scale
             self.plastic_delta = np.clip(self.plastic_delta + dw, -PLASTIC_DELTA_MAX, PLASTIC_DELTA_MAX)
             self.W.data[self.plastic_data_idx] = self.plastic_w_init + self.plastic_delta
 
