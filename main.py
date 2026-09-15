@@ -3,6 +3,10 @@
 Uso:
     python main.py                       # janela normal (precisa de display)
     python main.py --headless --frames 6000   # roda sem janela, so gera relatorio de validacao
+    python main.py --signal-mode synthetic_plastic --synthetic-w-init 40 \
+        --plasticity-mode tonic_baseline --plastic-lr 0.02
+        # janela visual com o canal sintetico plastico (Achados 13-16),
+        # parametros configuraveis por linha de comando
 
 IMPORTANTE (honestidade cientifica): este e um modelo computacional
 aproximado. Nao ha alegacao de que "a mosca esta jogando" ou de qualquer
@@ -277,9 +281,9 @@ class FlyPongRunner:
         }
 
 
-def run_headless(frames, data_dir):
+def run_headless(frames, data_dir, signal_mode="real", synthetic_gain=0.0):
     os.environ.setdefault("SDL_VIDEODRIVER", "dummy")
-    runner = FlyPongRunner(data_dir)
+    runner = FlyPongRunner(data_dir, signal_mode=signal_mode, synthetic_gain=synthetic_gain)
     t0 = time.time()
     for i in range(frames):
         runner.step_frame()
@@ -307,7 +311,7 @@ def run_headless(frames, data_dir):
     return report
 
 
-def run_windowed(data_dir, fps=60):
+def run_windowed(data_dir, fps=60, signal_mode="real", synthetic_gain=0.0):
     import pygame
     from dashboard import Dashboard, PANEL_W
 
@@ -316,7 +320,7 @@ def run_windowed(data_dir, fps=60):
     pygame.display.set_caption("FlyPong")
     clock = pygame.time.Clock()
 
-    runner = FlyPongRunner(data_dir)
+    runner = FlyPongRunner(data_dir, signal_mode=signal_mode, synthetic_gain=synthetic_gain)
     n_raster = min(40, runner.net.n)
     raster_idx = np.linspace(0, runner.net.n - 1, n_raster).astype(int)
     dashboard = Dashboard(HEIGHT, n_raster)
@@ -350,6 +354,23 @@ def main():
     ap.add_argument("--headless", action="store_true")
     ap.add_argument("--frames", type=int, default=6000)
     ap.add_argument("--fps", type=int, default=60)
+    # Parametros do canal sintetico/plasticidade (Achados 13-16) -- antes so
+    # ajustaveis via monkeypatch de modulo em scripts; expostos aqui pra dar
+    # pra observar qualquer configuracao no modo visual, nao so headless.
+    ap.add_argument("--signal-mode", default="real",
+                     choices=["real", "synthetic_strong", "synthetic_plastic"])
+    ap.add_argument("--synthetic-gain", type=float, default=10.0,
+                     help="Ganho fixo usado em --signal-mode=synthetic_strong (Achado 13).")
+    ap.add_argument("--synthetic-w-init", type=float, default=None,
+                     help="Peso inicial do canal sintetico plastico (Achados 13-16). "
+                          "Default do modulo (8.93) se omitido.")
+    ap.add_argument("--plastic-lr", type=float, default=None,
+                     help="Taxa de aprendizado da plasticidade (sim.network.PLASTIC_LR). "
+                          "Default do modulo (0.02) se omitido.")
+    ap.add_argument("--plasticity-mode", default=None,
+                     choices=["original", "freq_normalized", "tonic_baseline"],
+                     help="Regra de plasticidade (Achado 14). Default do modulo "
+                          "('original') se omitido.")
     args = ap.parse_args()
 
     if not os.path.exists(os.path.join(args.data_dir, "neurons.parquet")):
@@ -357,10 +378,19 @@ def main():
               f"Rode primeiro: python fetch_connectome.py --synthetic (ou com --token).")
         return
 
+    if args.synthetic_w_init is not None:
+        globals()["SYNTHETIC_W_INIT"] = args.synthetic_w_init
+    if args.plastic_lr is not None:
+        netmod.PLASTIC_LR = args.plastic_lr
+    if args.plasticity_mode is not None:
+        netmod.PLASTICITY_MODE = args.plasticity_mode
+
     if args.headless:
-        run_headless(args.frames, args.data_dir)
+        run_headless(args.frames, args.data_dir, signal_mode=args.signal_mode,
+                     synthetic_gain=args.synthetic_gain)
     else:
-        run_windowed(args.data_dir, fps=args.fps)
+        run_windowed(args.data_dir, fps=args.fps, signal_mode=args.signal_mode,
+                     synthetic_gain=args.synthetic_gain)
 
 
 if __name__ == "__main__":
