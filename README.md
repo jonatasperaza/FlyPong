@@ -10,7 +10,7 @@ consciência ou senciência. É um modelo computacional aproximado: um pequeno
 subgrafo do conectoma real, simulado como neurônios leaky integrate-and-fire
 (LIF), recebendo um estímulo sensorial derivado da posição da bola e lido por
 um readout motor simples. A seção [Validação](#validação-honesta) reporta os
-resultados reais dos testes com dados reais do MaleCNS v1.0, ao longo de 15
+resultados reais dos testes com dados reais do MaleCNS v1.0, ao longo de 17
 achados: bugs encontrados e corrigidos, hipóteses testadas e descartadas ou
 confirmadas, uma correção pós-hoc de um resultado que parecia bom demais e
 não era (Achado 13), e duas tentativas de corrigir um viés de plasticidade
@@ -41,7 +41,7 @@ antes de escrever código: é um checklist prático extraído dos bugs e
 armadilhas reais que apareceram construindo este projeto (regex fullmatch do
 neuPrint, camadas anatômicas escondidas, dados espaciais que não existem
 prontos, RNGs acoplados sem querer, etc.), organizado por etapa do trabalho,
-não pela ordem cronológica dos 15 achados abaixo.
+não pela ordem cronológica dos 17 achados abaixo.
 
 ## Inspiração / trabalhos relacionados
 
@@ -952,6 +952,157 @@ print(r.validation_report(), 'media geral:', np.mean(r.bounce_rate_curve))
 "
 ```
 
+### Achado 17 (plasticidade numa região de inclinação real da curva peso-desempenho)
+
+O Achado 15 mapeou a curva completa de desempenho por peso fixo e mostrou
+que a região onde os Achados 13-14 testaram plasticidade (`8.93 ± 3`) é
+relativamente achatada. Entre os pesos ~10 e ~20 a inclinação é bem maior —
+mudanças de peso ali produzem mudanças de desempenho mais visíveis. Esta
+rodada testa plasticidade partindo dessa região, não da região achatada.
+
+**Fase 1 (escolha do ponto de partida, modo `original`, 3 seeds, pesos 12 e
+15):**
+
+| peso | seed | delta plástico | peso final | delta controle |
+|---|---|---|---|---|
+| 12 | 42 | -0.234 | 10.90 | -0.227 |
+| 12 | 1 | -0.044 | 11.13 | +0.670 |
+| 12 | 2 | -0.217 | 11.34 | +0.596 |
+| 15 | 42 | -0.163 | 14.47 | -0.211 |
+| 15 | 1 | -0.234 | 14.02 | +0.580 |
+| 15 | 2 | -0.120 | **17.41** | +0.513 |
+
+Amplitude de movimento do peso (máximo menos mínimo do peso final entre as
+3 seeds): 0.44 no peso 12, contra 3.39 no peso 15 — incluindo o primeiro
+caso em todo o projeto de o peso **subir** de forma clara sob plasticidade
+(seed 2, +2.41, quase no teto do delta de ±3.0). Peso 15 escolhido pra Fase
+2 por esse critério (mais sinal de que a plasticidade sai da região
+achatada), não pela direção do efeito, que ainda não estava definida nesta
+fase.
+
+**Fase 2 (protocolo completo, peso 15, 6 seeds, 3 modos):**
+
+| seed | controle | `original` | `freq_normalized` | `tonic_baseline` |
+|---|---|---|---|---|
+| 42 | -0.211 | -0.163 | -0.333 | -0.300 |
+| 1  | +0.580 | -0.234 | -0.381 | -0.075 |
+| 2  | +0.513 | -0.120 | -0.347 | -0.203 |
+| 3  | +0.140 | -0.113 | -0.103 | -0.159 |
+| 4  | -0.160 | -0.035 | -0.257 | -0.055 |
+| 5  | -0.097 | -0.093 | -0.243 | -0.092 |
+
+Testes estatísticos (plástico vs. controle, mesmo formato dos Achados
+13-14):
+
+| modo | teste t pareado | teste de sinal (n favorável/6) |
+|---|---|---|
+| `original` | t(5)=-1.60, p=0.171 | 3/6, p=1.00 |
+| `freq_normalized` | t(5)=-2.50, **p=0.054** | 0/6, p=0.031 |
+| `tonic_baseline` | t(5)=-1.95, p=0.109 | 2/6, p=0.688 |
+
+`freq_normalized` chega perto da significância (p=0.054) na mesma direção
+ruim do Achado 14 (p=0.009 lá) — consistente entre as duas regiões
+testadas, reforçando que essa correção específica não funciona
+independente de onde o peso começa. Os outros dois modos não são
+significativos, mas nenhum é favorável à plasticidade.
+
+**Achado qualitativo notável**: nas seeds 1 e 2, o controle teve um
+resultado bom por sorte da trajetória determinística da bola (+0.580 e
++0.513, sem nenhuma plasticidade envolvida). Nos três modos de
+plasticidade, essas duas seeds especificamente pioram bastante em relação
+ao controle (diferença de -0.63 a -0.96, as piores diferenças de toda a
+tabela). Isso sugere que, nesta região de peso, o efeito mais visível da
+plasticidade não é "aprender mal" de forma genérica — é perturbar uma
+trajetória que por acaso já estava indo bem, com o mesmo custo em qualquer
+um dos três modos testados.
+
+**Correção pós-hoc (auditoria das seeds 1 e 2, mesmo método do Achado 13):**
+antes de aceitar a leitura acima, as duas seeds "sortudas" foram auditadas
+pelo mesmo processo que expôs a órbita travada da seed 2 do Achado 13
+(`docs/achado-13-investigacao-seed2.md`): correlação entre duas janelas
+distantes no tempo, ambas dentro do período estável (depois do último
+evento de miss), e faixa de variação de `ball_y` nesse período.
+
+| seed | correlação entre janelas distantes | faixa de `ball_y` | veredito |
+|---|---|---|---|
+| 1 | -0.714 | 97.5% da tela | trajetória genuína |
+| 2 | **-0.99999999...** | 47.1% da tela | **órbita travada** |
+
+A seed 2 reproduz a mesma assinatura da seed 2 do Achado 13 (correlação
+praticamente -1 entre janelas bem separadas), embora a faixa presa desta
+vez seja mais larga (47% contra 12% no Achado 13) — ainda um ciclo
+periódico repetitivo, não desafios variados. A seed 1 não reproduz esse
+padrão: correlação moderada (não a assinatura de -1 quase exata) e
+variação por quase toda a altura da tela, consistente com rastreamento
+genuíno, não um ciclo travado.
+
+Isso corrige parcialmente o "achado qualitativo notável" acima: a
+interpretação de "plasticidade perturba trajetória sortuda" continua válida
+pra seed 1 (trajetória genuína, plasticidade genuinamente piora algo real).
+Pra seed 2, a leitura muda — o controle não estava tendo um bom desempenho
+genuíno, estava preso num ciclo degenerado (mesmo problema do Achado 13,
+seed diferente do redesign, mesma seed de jogo). A plasticidade "destruindo"
+esse resultado não é necessariamente ruim: pode estar só saindo de um
+estado trivial, não perdendo algo de valor. As conclusões estatísticas da
+Fase 2 (nenhum modo significativamente melhor que o controle) não mudam,
+já que eram baseadas na tabela completa de 6 seeds, não só nessas duas —
+mas a leitura qualitativa "a plasticidade estraga bom desempenho" fica
+sustentada só pela metade dos casos que pareciam apoiá-la.
+
+**Fechando o elo do Achado 13 seed a seed**: repetindo as 18 rodadas
+plásticas (determinístico, mesmos parâmetros, só pra capturar contagem de
+bounce/miss) e correlacionando a fração de eventos positivos
+(`bounce/(bounce+miss)`) de cada seed com a diferença pareada
+(plástico−controle) daquela seed:
+
+| modo | correlação (Pearson) | p |
+|---|---|---|
+| `original` | r=-0.45 | 0.37 |
+| `freq_normalized` | r=-0.15 | 0.78 |
+| `tonic_baseline` | r=+0.86 | **0.028** |
+| todos os 18 pontos juntos | r=-0.016 | 0.95 |
+
+A hipótese (mais eventos negativos que positivos → pior desempenho da
+plasticidade) **não fecha de forma robusta**: só `tonic_baseline` mostra a
+correlação na direção esperada e com significância (mas com n=6, uma
+amostra pequena pra confiar sem mais dados); os outros dois modos não
+mostram correlação nenhuma, e o conjunto completo de 18 pontos é
+estatisticamente nulo. A explicação agregada do Achado 13 (mais reforço
+negativo que positivo numa rodada típica) continua sendo a leitura mais
+sustentada no nível agregado, mas não se traduz num efeito consistente
+seed a seed nesta região de peso — outro fator (como o achado qualitativo
+da "trajetória sortuda perturbada" acima) parece pesar tanto ou mais que a
+proporção bruta de eventos.
+
+**Fase 3 (observação visual) não foi completada com descrição
+qualitativa.** A CLI do `main.py` foi atualizada com os parâmetros
+necessários (`--signal-mode`, `--synthetic-w-init`, `--plasticity-mode`,
+`--plastic-lr`), e o comando abaixo roda a configuração desta rodada numa
+janela visual — mas não há ferramenta de captura de tela pra janelas
+nativas neste ambiente (só pra navegador), então não foi possível observar
+e descrever o comportamento do paddle de forma honesta sem inventar o que
+"parece" ter sido visto. Fica como comando pronto pra quem quiser observar
+diretamente:
+
+```bash
+python main.py --signal-mode synthetic_plastic --synthetic-w-init 15 \
+    --plasticity-mode original --plastic-lr 0.02
+```
+
+**Comparação com o Achado 14 (peso 8.93, região achatada)**: o padrão
+geral se repete — nenhum dos três modos melhora a plasticidade sobre o
+controle, e `freq_normalized` é consistentemente o pior (significativo ou
+quase-significativo nas duas regiões testadas). A diferença nesta região de
+maior inclinação é que os efeitos são numericamente maiores e mais
+consistentes na direção negativa (todos os 18 valores de diferença nesta
+rodada são negativos ou próximos de zero, contra uma mistura mais
+equilibrada de sinais no Achado 14), e surge o achado qualitativo novo da
+"trajetória sortuda perturbada" (confirmado pra metade dos casos que
+pareciam apoiá-lo depois da auditoria acima; a outra metade era órbita
+travada, não desempenho genuíno). Isso fortalece a conclusão do Achado
+13/14: o problema é a regra de plasticidade em si, não a região de peso
+onde ela foi testada.
+
 ## Limitações conhecidas
 
 - (Histórico, corrigido no Achado 9) O pool `descending` original tinha só
@@ -1034,6 +1185,13 @@ print(r.validation_report(), 'media geral:', np.mean(r.bounce_rate_curve))
   qualquer resultado, não é um achado negativo, é trabalho não feito.
 - O oponente (paddle direito) é uma IA que nunca erra; serve só pra manter a
   bola em jogo, não é um adversário real.
+- **(Achado 17, correção pós-hoc)** Das duas seeds "sortudas" usadas pra
+  argumentar que a plasticidade "perturba trajetória sortuda" (Achado 17),
+  só a seed 1 é desempenho genuíno; a seed 2 era órbita travada (mesma
+  assinatura estatística da seed 2 do Achado 13: correlação de -0.9999...
+  entre janelas distantes no período estável). A conclusão estatística
+  agregada da Fase 2 não muda, mas a leitura qualitativa vale só pra metade
+  dos casos que pareciam sustentá-la.
 
 ## Citação
 
