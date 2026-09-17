@@ -1103,6 +1103,39 @@ travada, não desempenho genuíno). Isso fortalece a conclusão do Achado
 13/14: o problema é a regra de plasticidade em si, não a região de peso
 onde ela foi testada.
 
+### Achado 18 (peso-teto de 40: plasticidade não supera o controle perfeito)
+
+O Achado 15 mostrou que `SYNTHETIC_W_INIT=40` é o teto de desempenho do canal
+sintético fixo. A pergunta seguinte era se as três regras de plasticidade já
+testadas conseguem ao menos preservar esse desempenho quando começam no teto.
+O protocolo completo usa 15.000 frames, seeds 42/1/2/3/4/5, sinal
+`synthetic_plastic`, peso inicial 40, `PLASTIC_LR=0.02`, quatro substeps e
+sem poda causal. O controle usa o mesmo canal com `PLASTIC_LR=0`.
+
+| modo | média taxa final | diferença final média vs. controle | plástico melhor/igual/pior |
+|---|---:|---:|---:|
+| controle | 1,000 | 0,000 | — |
+| `original` | 0,821 | -0,179 | 0 / 3 / 3 |
+| `freq_normalized` | 0,706 | -0,294 | 0 / 3 / 3 |
+| `tonic_baseline` | 0,553 | -0,447 | 0 / 2 / 4 |
+
+Nenhuma regra superou o controle em nenhuma seed. O teste t pareado
+exploratório sobre a taxa final dá p=0,101 (`original`), p=0,095
+(`freq_normalized`) e p=0,028 (`tonic_baseline`, pior). Isso não deve ser
+tratado como um novo teste confirmatório: a taxa final foi escolhida depois de
+ver os dados e o controle está saturado em 1,0. A conclusão robusta é mais
+modesta: **nesta configuração, não há sinal de que qualquer uma das três
+regras preserve ou melhore o desempenho de um canal que já funciona no teto**.
+
+Há ainda um detalhe mecanístico contrário à hipótese simples "mais peso ajuda":
+no modo `original`, todas as seis seeds terminaram com peso acima de 40
+(40,54–43,00), mas três tiveram queda material de desempenho. A próxima
+rodada não deve apenas variar taxa de aprendizado; deve pré-definir métrica,
+separar seeds de desenvolvimento/teste e testar se o gargalo é crédito
+temporal, observação ou readout. A receita reprodutível e retomável está em
+`scripts/run_achado18.py`; a primeira rodada de 23 células foi executada
+interativamente, e a célula final foi reproduzida pelo script.
+
 ## Limitações conhecidas
 
 - (Histórico, corrigido no Achado 9) O pool `descending` original tinha só

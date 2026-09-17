@@ -1,8 +1,4 @@
-"""Modelo leaky integrate-and-fire (LIF) vetorizado em NumPy.
-
-Simples e barato o bastante pra rodar milhares de neuronios em tempo real
-(30-60Hz) sem depender de Brian2/NEST.
-"""
+"""Optimized vectorized leaky integrate-and-fire population."""
 import numpy as np
 
 
@@ -16,26 +12,26 @@ class LIFPopulation:
         self.v_threshold = v_threshold
         self.refractory_steps = refractory_steps
         self.dt = dt
-
         self.v = np.full(n, v_rest, dtype=np.float64)
         self.refractory_timer = np.zeros(n, dtype=np.int32)
         self.spikes = np.zeros(n, dtype=bool)
+        self._dv = np.zeros(n, dtype=np.float64)
 
     def reset(self):
-        self.v[:] = self.v_rest
-        self.refractory_timer[:] = 0
-        self.spikes[:] = False
+        self.v.fill(self.v_rest)
+        self.refractory_timer.fill(0)
+        self.spikes.fill(False)
 
     def step(self, input_current):
-        """Avanca um passo dt. Retorna array booleano de spikes."""
         active = self.refractory_timer <= 0
-        dv = (self.dt / self.tau_m) * (-(self.v - self.v_rest) + input_current)
-        self.v[active] += dv[active]
+        np.subtract(self.v, self.v_rest, out=self._dv)
+        self._dv *= -1.0
+        self._dv += input_current
+        self._dv *= self.dt / self.tau_m
+        self.v[active] += self._dv[active]
 
         self.spikes = active & (self.v >= self.v_threshold)
         self.v[self.spikes] = self.v_reset
         self.refractory_timer[self.spikes] = self.refractory_steps
-
         self.refractory_timer[~active] -= 1
-        # neuronios fora do periodo refratario e sem esse decremento continuam com timer<=0
         return self.spikes
