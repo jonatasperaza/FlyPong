@@ -41,7 +41,7 @@ antes de escrever código: é um checklist prático extraído dos bugs e
 armadilhas reais que apareceram construindo este projeto (regex fullmatch do
 neuPrint, camadas anatômicas escondidas, dados espaciais que não existem
 prontos, RNGs acoplados sem querer, etc.), organizado por etapa do trabalho,
-não pela ordem cronológica dos 17 achados abaixo.
+não pela ordem cronológica dos 18 achados abaixo.
 
 ## Inspiração / trabalhos relacionados
 
@@ -1136,6 +1136,68 @@ temporal, observação ou readout. A receita reprodutível e retomável está em
 `scripts/run_achado18.py`; a primeira rodada de 23 células foi executada
 interativamente, e a célula final foi reproduzida pelo script.
 
+**Classificação contra a tabela estática do Achado 15** (35→0,883; 40→0,994;
+50→1,0): as 18 seeds plásticas terminaram com peso entre 39,21 e 43,00 —
+**todas dentro ou acima da região saturada** (≥38), nenhuma chegou perto da
+região de queda real (~35). Isso significa que este desenho experimental não
+consegue distinguir "plasticidade parou de decair o peso" de "nunca saiu do
+platô" — não é nenhum dos três cenários prometidos de forma limpa: não é (a)
+puramente inconclusivo por desenho (a variação de desempenho absoluto,
+0,20–1,0, é grande demais pra só refletir indiferença de platô), não é (b)
+queda confirmada fora do platô (o peso nunca saiu do platô), e não é (c)
+resultado positivo (nenhum modo bate o controle com significância). O achado
+real é o detalhe mecanístico acima: **desempenho absoluto e peso final estão
+desacoplados mesmo dentro da zona nominalmente segura** — o mecanismo mais
+provável é instabilidade dinâmica durante a trajetória (o peso passa por
+valores diferentes ao longo da rodada, não fica parado em 40), não a posição
+final isolada.
+
+**Auditoria pós-hoc da seed 2 (mesmo método dos Achados 13/17, órbita
+travada):** a seed 2 teve os melhores números em todos os três modos
+(`bounce_rate_fim`=1,0 nos três). Por padrão — já travou nos Achados 13 e 17
+— foi auditada antes de aceitar isso como desempenho genuíno.
+
+| modo | correlação entre janelas distantes | faixa de `ball_y` | veredito |
+|---|---|---|---|
+| `original` | **1,000000** | 23,8% da tela | **órbita travada** |
+| `freq_normalized` | -0,595 | 16,5% da tela | suspeito (faixa estreita, correlação não tão extrema) |
+| `tonic_baseline` | **1,000000** | 23,8% da tela | **órbita travada** |
+
+Terceira vez que essa seed específica trava (Achados 13, 17 e agora 18),
+sempre com o mesmo tipo de assinatura (correlação próxima de ±1, faixa de
+`ball_y` bem abaixo dos ~97% de uma trajetória genuína — comparar com a seed
+4/`freq_normalized`, pior resultado da rodada, que tem correlação -0,09 e
+faixa 97,5%, ou seja, desempenho ruim genuíno, não órbita). Recalculando as
+estatísticas sem a seed 2: nenhuma conclusão muda de direção (`original`
+p=0,442, `freq_normalized` p=0,123, `tonic_baseline` p=0,350 — todas ainda
+não-significativas), mas a média de `bounce_rate_fim` cai em todos os três
+modos (0,821→0,785; 0,706→0,647; 0,553→0,463), reforçando que os números
+"bons" da rodada completa eram parcialmente inflados por um artefato
+determinístico, não por três seeds realmente jogando bem.
+
+**Fase 3 (observação visual):** `python main.py --signal-mode
+synthetic_plastic --synthetic-w-init 40 --plasticity-mode original
+--plastic-lr 0.02` roda sem erro, mas — mesma limitação já registrada no
+Achado 17 — não há ferramenta de captura de tela pra janelas nativas neste
+ambiente, só pra navegador. Não é a primeira vez que essa limitação aparece,
+então não deveria ser tratada como surpresa; fica só o comando pronto pra
+quem quiser observar diretamente.
+
+**Nota de reprodutibilidade:** durante esta rodada de auditoria, uma edição
+externa em `main.py` (otimização de performance, não relacionada à ciência
+do achado) introduziu um bug silencioso — uma checagem `hasattr` que nunca
+batia por causa de *name mangling* do Python em atributos `__duplo_underscore`,
+zerando o canal de reforço sintético sem gerar erro nem aviso. Foi
+encontrado e corrigido durante a auditoria da Fase 2 (comparando reprodução
+isolada de uma célula contra o dado já coletado) — os 24 resultados acima
+foram verificados como consistentes antes e depois do bug (o bug foi
+introduzido depois da coleta original, não durante). Fica como lembrete
+prático: uma otimização "matematicamente equivalente" ainda pode quebrar o
+experimento por um erro de implementação comum, e a defesa que funcionou foi
+a mesma de sempre neste projeto — reproduzir um resultado conhecido antes de
+confiar num código novo, não revisar o diff visualmente e assumir que está
+certo.
+
 ## Limitações conhecidas
 
 - (Histórico, corrigido no Achado 9) O pool `descending` original tinha só
@@ -1216,8 +1278,16 @@ interativamente, e a célula final foi reproduzida pelo script.
   peso-teto é uma pergunta em aberto — a Fase 3 do Achado 15 que
   responderia isso foi cancelada por restrição de tempo antes de produzir
   qualquer resultado, não é um achado negativo, é trabalho não feito.
-- O oponente (paddle direito) é uma IA que nunca erra; serve só pra manter a
-  bola em jogo, não é um adversário real.
+- ~~O oponente (paddle direito) é uma IA que nunca erra; serve só pra manter a
+  bola em jogo, não é um adversário real.~~ **Corrigido depois do Achado 18**
+  (`game/pong.py`, commit `fac9325`): a IA agora reage com atraso
+  (`AI_REACTION_FRAMES`), tem ruído gaussiano e uma probabilidade de "piscar"
+  (`AI_MISS_PROB`), e fica mais difícil conforme o lado esquerdo marca ponto
+  (currículo). **Todos os achados até aqui, incluindo o 18, foram medidos
+  contra a IA antiga (invencível)** — não são diretamente comparáveis a
+  qualquer trabalho futuro (torneio evolutivo, por exemplo) que use a IA
+  nova. A auditoria pós-hoc da seed 2 do Achado 18 precisou recarregar a IA
+  antiga especificamente pra reproduzir os números do dataset já coletado.
 - **(Achado 17, correção pós-hoc)** Das duas seeds "sortudas" usadas pra
   argumentar que a plasticidade "perturba trajetória sortuda" (Achado 17),
   só a seed 1 é desempenho genuíno; a seed 2 era órbita travada (mesma
@@ -1225,6 +1295,17 @@ interativamente, e a célula final foi reproduzida pelo script.
   entre janelas distantes no período estável). A conclusão estatística
   agregada da Fase 2 não muda, mas a leitura qualitativa vale só pra metade
   dos casos que pareciam sustentá-la.
+- **(Achado 18)** A seed 2 travou em órbita degenerada pela terceira vez
+  (Achados 13, 17 e 18), em 2 dos 3 modos de plasticidade testados no peso
+  40 (correlação exata de 1,0 entre janelas distantes, faixa de `ball_y`
+  <24% da tela) — reforça que essa seed específica deve ser tratada como
+  suspeita por padrão em qualquer rodada futura com o mesmo gerador de jogo,
+  não investigada do zero a cada vez. Além disso, todas as 18 seeds
+  plásticas terminaram com peso dentro da região "saturada" da tabela do
+  Achado 15 (≥38), mas o desempenho absoluto variou de 0,20 a 1,0 mesmo
+  assim — peso final dentro do platô não garante desempenho alto quando o
+  peso chegou lá via plasticidade (trajetória dinâmica), diferente de um
+  peso fixo estático a vida toda.
 
 ## Citação
 

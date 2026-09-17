@@ -1,0 +1,9 @@
+{
+  "plastic_lr": 0.0112961168167668,
+  "synthetic_w_init": 22.764135873611448,
+  "dopamine_baseline": 0.30638658993430334,
+  "reward_sensitivity": 2.8110500432679273,
+  "weight_scale": 1.4760957044320433,
+  "noise_sigma": 0.15220492306319752,
+  "action_threshold": 0.6056777105165704
+}

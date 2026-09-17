@@ -1,0 +1,50 @@
+[
+  {
+    "generation": 5,
+    "fitness": 96.12484806788214,
+    "wins": 3,
+    "matches": 3,
+    "win_rate": 1.0,
+    "genome": {
+      "plastic_lr": 0.017451218865996133,
+      "synthetic_w_init": 17.30782884069174,
+      "dopamine_baseline": 0.30638658993430334,
+      "reward_sensitivity": 2.3650287924644164,
+      "weight_scale": 1.5713906894548897,
+      "noise_sigma": 0.14295977372031754,
+      "action_threshold": 0.5521111441563524
+    }
+  },
+  {
+    "generation": 3,
+    "fitness": 93.99338665290676,
+    "wins": 3,
+    "matches": 3,
+    "win_rate": 1.0,
+    "genome": {
+      "plastic_lr": 0.015862323577867446,
+      "synthetic_w_init": 9.450860592127537,
+      "dopamine_baseline": 0.30638658993430334,
+      "reward_sensitivity": 2.1200266802590955,
+      "weight_scale": 1.2147964880140711,
+      "noise_sigma": 0.03399433098302544,
+      "action_threshold": 0.6539258099030731
+    }
+  },
+  {
+    "generation": 6,
+    "fitness": 92.1977152849444,
+    "wins": 3,
+    "matches": 3,
+    "win_rate": 1.0,
+    "genome": {
+      "plastic_lr": 0.019745846622418968,
+      "synthetic_w_init": 19.589013140784804,
+      "dopamine_baseline": 0.30638658993430334,
+      "reward_sensitivity": 2.4296992110599,
+      "weight_scale": 1.4760957044320433,
+      "noise_sigma": 0.03507120203978093,
+      "action_threshold": 0.7
+    }
+  }
+]
