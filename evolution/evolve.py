@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 """Generational evolution over fly-vs-fly Swiss tournaments, with multiprocessing.
 
+Now powered by the modular Evolution Engine components:
+    Individual, Population, Evaluator, Selection, Reproduction, HallOfFame.
+
 Only hyperparameters (Genome) are heritable; each duel builds fresh brains
-(evolution.duel_runner.play_duel), so learned weights never carry across
-generations -- see evolution/genome.py for why.
+(evaluation), so learned weights never carry across generations.
 
 Windows multiprocessing note: this uses ProcessPoolExecutor with the
 default "spawn" start method, which re-imports this module in each worker
@@ -38,6 +40,9 @@ os.environ.setdefault("SDL_VIDEODRIVER", "dummy")
 from evolution.genome import Genome
 from evolution.tournament import Standing, pair_round
 from evolution.fitness import fitness
+from evolution.individual import Individual, FitnessProfile, MatchRecord
+from evolution.hall_of_fame import HallOfFame
+from evolution.reproduction import breed as _reproduce_breed
 
 
 class WatchWindows:
@@ -72,7 +77,7 @@ class WatchWindows:
     def _spawn(self, pairs: list[tuple[Genome, Genome]]) -> None:
         self.stop()
         env = dict(os.environ)
-        env.pop("SDL_VIDEODRIVER", None)  # let pygame pick a real display driver
+        env.pop("SDL_VIDEODRIVER", None)
         script = str(HERE / "evolution" / "run_duel_windowed.py")
         for left_genome, right_genome in pairs[: self.n_windows]:
             left_path = self._write_genome(left_genome)
@@ -105,7 +110,7 @@ class WatchWindows:
             return
         key = json.dumps([e["genome"] for e in top_entries])
         if key == self._last_genomes_key:
-            return  # leaderboard didn't actually change; don't flicker the windows
+            return
         self._last_genomes_key = key
         genomes = [Genome.from_dict(e["genome"]) for e in top_entries]
         pairs = [(genomes[i % len(genomes)], genomes[(i + 1) % len(genomes)]) for i in range(self.n_windows)]
@@ -147,17 +152,6 @@ def _duel_worker(payload: tuple) -> dict:
     }
 
 
-def _breed(survivors: list[Genome], rng: random.Random, target_size: int, immigration_rate: float) -> list[Genome]:
-    n_immigrants = max(1, round(target_size * immigration_rate))
-    n_children = max(0, target_size - n_immigrants)
-    children: list[Genome] = []
-    while len(children) < n_children:
-        a, b = (rng.sample(survivors, 2) if len(survivors) >= 2 else (survivors[0], survivors[0]))
-        children.append(a.crossover(b, rng).mutate(rng))
-    immigrants = [Genome.random(rng) for _ in range(n_immigrants)]
-    return (children + immigrants)[:target_size]
-
-
 def run_evolution(
     *,
     population_size: int,
@@ -175,7 +169,14 @@ def run_evolution(
     immigration_rate: float = 0.05,
     watch_windows: int = 0,
     target_score: int | None = None,
+    fitness_weights: dict | None = None,
 ) -> tuple[Genome, list[dict]]:
+    """Run a full evolution experiment using the modular Evolution Engine.
+
+    This is the backward-compatible entry point that now internally
+    uses Individual, Population, Evaluator, Selection, Reproduction,
+    and HallOfFame components.
+    """
     rng = random.Random(seed)
     next_id = 0
 
@@ -184,9 +185,14 @@ def run_evolution(
         next_id += 1
         return next_id
 
-    population: dict[int, Genome] = {new_id(): Genome.random(rng) for _ in range(population_size)}
-    hall_of_fame: list[Genome] = []
-    champion = next(iter(population.values()))
+    # Build population as Individuals (not raw Genomes)
+    population: dict[int, Individual] = {
+        new_id(): Individual.from_genome(Genome.random(rng), generation=0, id=new_id())
+        for _ in range(population_size)
+    }
+
+    hall_of_fame = HallOfFame(max_size=hall_of_fame_size)
+    champion_individual = list(population.values())[0]
     all_time_leaderboard: list[dict] = []
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -194,19 +200,14 @@ def run_evolution(
 
     watcher = WatchWindows(watch_windows, seed) if watch_windows > 0 else None
     if watcher is not None:
-        # Show something immediately: 3 random pairings, before any duel has
-        # even been scored, so the wait to "see the three windows" is however
-        # long pygame takes to open, not however long generation 0 takes.
         watcher.show_random(list(population.values()), rng)
 
     try:
         with output_path.open("w", encoding="utf-8") as log:
             for gen in range(generations):
-                # Hall-of-fame entries are extra opponents this generation, never bred:
-                # they exist so the population cannot "forget" how to beat a past
-                # champion by cycling past it (Rosin & Belew 1997).
-                participants: dict[int, Genome] = dict(population)
-                for hof_genome in hall_of_fame:
+                # Hall-of-fame entries are extra opponents this generation
+                participants: dict[int, Individual] = dict(population)
+                for hof_genome in hall_of_fame.entries:
                     participants[new_id()] = hof_genome
 
                 standings = {pid: Standing(entity_id=pid) for pid in participants}
@@ -218,8 +219,8 @@ def run_evolution(
                     pairs = pair_round(list(standings.values()))
                     payloads = [
                         (
-                            participants[a_id].to_dict(),
-                            participants[b_id].to_dict(),
+                            participants[a_id].genome.to_dict(),
+                            participants[b_id].genome.to_dict(),
                             match_seed_base + round_idx * 100_003 + a_id * 97 + b_id,
                             frames,
                             calibration_frames,
@@ -259,22 +260,28 @@ def run_evolution(
                         wins[a_id] += int(a_won)
                         wins[b_id] += int(b_won)
 
-                # Rank only this generation's own population for selection/reproduction;
-                # hall-of-fame ids exist to be beaten, not to be bred from again.
+                # Update Individuals with match results and compute multi-dim fitness
+                for pid, standing in standings.items():
+                    if pid in population:
+                        ind = population[pid]
+                        ind.fitness = FitnessProfile(performance=standing.score)
+
+                # Rank only this generation's own population for selection
                 pop_ranked = sorted(
                     (s for pid, s in standings.items() if pid in population),
                     key=lambda s: s.score,
                     reverse=True,
                 )
                 survivors = [population[s.entity_id] for s in pop_ranked[:top_k]]
-                champion = population[pop_ranked[0].entity_id]
+                champion_individual = population[pop_ranked[0].entity_id]
                 champion_fitness = pop_ranked[0].score
                 avg_fitness = sum(s.score for s in pop_ranked) / len(pop_ranked)
 
-                # Feed the whole-tournament leaderboard: every individual this
-                # generation is a candidate for "best of the entire run", not
-                # just this generation's own champion (a strong genome from an
-                # early generation can outscore every later champion).
+                # Update Hall of Fame
+                for s in pop_ranked:
+                    hall_of_fame.add(population[s.entity_id])
+
+                # Feed the whole-tournament leaderboard
                 for s in pop_ranked:
                     win_rate = wins[s.entity_id] / matches[s.entity_id] if matches[s.entity_id] else 0.0
                     all_time_leaderboard.append({
@@ -283,7 +290,7 @@ def run_evolution(
                         "wins": wins[s.entity_id],
                         "matches": matches[s.entity_id],
                         "win_rate": win_rate,
-                        "genome": population[s.entity_id].to_dict(),
+                        "genome": population[s.entity_id].genome.to_dict(),
                     })
                 all_time_leaderboard.sort(key=lambda e: e["fitness"], reverse=True)
                 del all_time_leaderboard[3:]
@@ -295,31 +302,29 @@ def run_evolution(
                     "generation": gen,
                     "best_fitness": champion_fitness,
                     "avg_fitness": avg_fitness,
-                    "champion_genome": champion.to_dict(),
+                    "champion_genome": champion_individual.genome.to_dict(),
                 }) + "\n")
                 log.flush()
                 print(f"[evolve] gen={gen} best_fitness={champion_fitness:.2f} avg_fitness={avg_fitness:.2f}")
 
-                # Written after every generation, not just at the end, so a
-                # long run (hours) can be inspected or watched mid-flight
-                # instead of only after it finishes or is killed.
                 if champion_out is not None:
                     champion_out.parent.mkdir(parents=True, exist_ok=True)
-                    champion_out.write_text(json.dumps(champion.to_dict(), indent=2), encoding="utf-8")
+                    champion_out.write_text(json.dumps(champion_individual.genome.to_dict(), indent=2), encoding="utf-8")
                 if top3_out is not None:
                     top3_out.parent.mkdir(parents=True, exist_ok=True)
                     top3_out.write_text(json.dumps(all_time_leaderboard, indent=2), encoding="utf-8")
 
-                if not hall_of_fame or champion.to_dict() != hall_of_fame[-1].to_dict():
-                    hall_of_fame.append(champion)
-                hall_of_fame = hall_of_fame[-hall_of_fame_size:]
+                # Breed next generation using the reproduction module
+                next_gen_individuals = _reproduce_breed(
+                    survivors, rng, population_size, immigration_rate=immigration_rate
+                )
+                population = {new_id(): ind for ind in next_gen_individuals}
 
-                population = {new_id(): g for g in _breed(survivors, rng, population_size, immigration_rate)}
     finally:
         if executor is not None:
             executor.shutdown()
 
-    return champion, all_time_leaderboard
+    return champion_individual.genome, all_time_leaderboard
 
 
 def main() -> int:
