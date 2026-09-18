@@ -55,15 +55,15 @@ def fitness_from_side_stats(side_stats, won: bool) -> float:
     )
 
 
-def profile_from_stats(won: bool, points_scored: int, hits: int, max_rally: int, learning_gain: float | None) -> FitnessProfile:
+def fitness_profile_from_stats(won: bool, points_scored: int, hits: int, max_rally: int, learning_gain: float | None) -> FitnessProfile:
     """Create a multi-dimensional FitnessProfile from raw match stats."""
-    total = won  # simplified: won counts as 1 match
     profile = FitnessProfile()
+    total = 1 if won else 0
 
     profile.performance = 1.0 if won else 0.0
-    profile.consistency = points_scored / max(1, points_scored + 1)
+    profile.consistency = min(1.0, points_scored / max(1, points_scored + 1))
     profile.robustness = min(1.0, hits / max(1, max_rally * 2)) if max_rally > 0 else 0.0
     profile.learning = max(0.0, min(1.0, (learning_gain or 0.0) / 2.0 + 0.5)) if learning_gain is not None else 0.0
-    profile.generalization = min(1.0, hits / max(1, (1 if won else 0) * 3))
+    profile.generalization = min(1.0, hits / max(1, total * 3))
 
     return profile

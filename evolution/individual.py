@@ -1,15 +1,30 @@
-"""Individual = Genome + multi-dimensional fitness profile.
+"""Individual = Genome + learned synaptic weights + multi-dimensional fitness profile.
 
-Each individual wraps a Genome and carries a fitness profile with
-five dimensions as described in Etapa 1 of the roadmap:
-performance, consistency, robustness, learning, generalization.
+Each individual wraps a Genome and carries:
+  - synaptic_weights: the learned synaptic weights after a lifetime of plasticity
+  - fitness: multi-dimensional fitness profile (performance, consistency, robustness, learning, generalization)
+  - record: match statistics
+
+Supports three inheritance modes for Etapa 2:
+  - GENOME_ONLY: standard evolution (only hyperparameters inherited)
+  - LAMARCKIAN: genome + learned weights inherited
+  - EVOLVE_LEARN: genome seeds a fresh brain that then learns (plasticity during life)
 """
 from __future__ import annotations
 
 from dataclasses import dataclass, field, asdict
-from typing import Any
+from enum import Enum
+from typing import Optional
+import numpy as np
 
 from evolution.genome import Genome
+
+
+class InheritanceMode(Enum):
+    """How traits are passed to offspring."""
+    GENOME_ONLY = "genome_only"       # Standard: only Genome (hyperparameters)
+    LAMARCKIAN = "lamarckian"         # Genome + learned synaptic weights
+    EVOLVE_LEARN = "evolve_learn"     # Genome seeds brain, plasticity during life
 
 
 @dataclass
@@ -49,6 +64,19 @@ class MatchRecord:
     max_rally: int = 0
     learning_gain: float = 0.0
     variance: float = 0.0
+    avg_rally: float = 0.0
+
+
+@dataclass
+class EvaluatedResult:
+    """Result of evaluating an individual, including learned weights."""
+    genome_dict: dict
+    fitness_value: float
+    fitness_profile: FitnessProfile
+    match_record: MatchRecord
+    synaptic_weights: Optional[np.ndarray] = None
+    weight_mean: float = 0.0
+    weight_std: float = 0.0
 
 
 @dataclass
@@ -58,14 +86,14 @@ class Individual:
     record: MatchRecord = field(default_factory=MatchRecord)
     generation: int = 0
     id: int | None = None
-
-    def __post_init__(self):
-        if self.id is None and hasattr(self.genome, "_default_id_counter"):
-            self.id = self._next_id()
+    synaptic_weights: Optional[np.ndarray] = None
+    inheritance_mode: InheritanceMode = InheritanceMode.GENOME_ONLY
+    weight_mean: float = 0.0
+    weight_std: float = 0.0
 
     @classmethod
-    def from_genome(cls, genome: Genome, generation: int = 0, id: int | None = None) -> "Individual":
-        return cls(genome=genome, generation=generation, id=id)
+    def from_genome(cls, genome: Genome, generation: int = 0, id: int | None = None, mode: InheritanceMode = InheritanceMode.GENOME_ONLY) -> "Individual":
+        return cls(genome=genome, generation=generation, id=id, inheritance_mode=mode)
 
     def compute_fitness(self, weights: dict[str, float] | None = None) -> float:
         self.fitness.performance = self._compute_performance()
@@ -86,7 +114,7 @@ class Individual:
         if total_matches == 0:
             return 0.0
         mean_score = self.record.points_scored / total_matches
-        return min(1.0, mean_score / 5.0) if total_matches > 0 else 0.0
+        return min(1.0, mean_score / 5.0)
 
     def _compute_robustness(self) -> float:
         if self.record.max_rally == 0:
@@ -103,7 +131,7 @@ class Individual:
             return 0.0
         return min(1.0, self.record.hits / max(1, (self.record.wins + self.record.losses) * 3))
 
-    def add_match_result(self, won: bool, points_scored: int = 0, hits: int = 0, max_rally: int = 0, learning_gain: float | None = None):
+    def add_match_result(self, won: bool, points_scored: int = 0, hits: int = 0, max_rally: int = 0, learning_gain: float | None = None, avg_rally: float = 0.0):
         if won:
             self.record.wins += 1
         else:
@@ -114,6 +142,7 @@ class Individual:
             self.record.max_rally = max_rally
         if learning_gain is not None:
             self.record.learning_gain += learning_gain
+        self.record.avg_rally = avg_rally
         self.record.variance = self._compute_variance()
 
     def _compute_variance(self) -> float:
@@ -123,30 +152,34 @@ class Individual:
         win_rate = self.record.wins / total
         return win_rate * (1 - win_rate)
 
-    @property
-    def win_rate(self) -> float:
-        total = self.record.wins + self.record.losses
-        return self.record.wins / total if total > 0 else 0.0
-
-    @property
-    def is_viable(self) -> bool:
-        return (self.record.wins + self.record.losses) >= 1
-
     def to_dict(self) -> dict:
-        return {
+        result = {
             "genome": self.genome.to_dict(),
             "fitness": self.fitness.to_dict(),
             "record": asdict(self.record),
             "generation": self.generation,
             "id": self.id,
+            "inheritance_mode": self.inheritance_mode.value,
+            "weight_mean": self.weight_mean,
+            "weight_std": self.weight_std,
         }
+        if self.synaptic_weights is not None:
+            result["synaptic_weights"] = self.synaptic_weights.tolist()
+        return result
 
     @classmethod
     def from_dict(cls, data: dict) -> "Individual":
+        weights = None
+        if "synaptic_weights" in data and data["synaptic_weights"] is not None:
+            weights = np.array(data["synaptic_weights"], dtype=np.float64)
         return cls(
             genome=Genome.from_dict(data["genome"]),
             fitness=FitnessProfile.from_dict(data.get("fitness", {})),
             record=MatchRecord(**data.get("record", {})),
             generation=data.get("generation", 0),
             id=data.get("id"),
+            synaptic_weights=weights,
+            inheritance_mode=InheritanceMode(data.get("inheritance_mode", "genome_only")),
+            weight_mean=data.get("weight_mean", 0.0),
+            weight_std=data.get("weight_std", 0.0),
         )
