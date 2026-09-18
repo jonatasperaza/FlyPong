@@ -88,8 +88,18 @@ def _calibrate(state: _BrainState, frames: int) -> float:
     return float(np.mean(diffs))
 
 
+_network_cache: dict[str, ConnectomeNetwork] = {}
+
+def _get_network() -> ConnectomeNetwork:
+    key = str(main.DATA_DIR)
+    if key not in _network_cache:
+        _network_cache[key] = ConnectomeNetwork(data_dir=main.DATA_DIR)
+    net = _network_cache[key]
+    net.reset()
+    return net
+
 def _make_brain(genome: Genome, calibration_frames: int) -> _BrainState:
-    net = ConnectomeNetwork(main.DATA_DIR)
+    net = _get_network()
     state = _BrainState(
         net=net,
         plastic_lr=genome.plastic_lr,
@@ -111,6 +121,7 @@ def _reward_current(state: _BrainState) -> np.ndarray:
 
 def _step_brain(state: _BrainState, ball_y: float, ball_x: float, mirror_x: bool) -> int:
     """Run one frame for one brain; returns its action (-1/0/1)."""
+    state.net.reset()
     x = (main.WIDTH - ball_x) if mirror_x else ball_x
     stim = ball_to_photoreceptor_stimulus(
         ball_y, x, main.HEIGHT, main.WIDTH, state.net.photoreceptor_positions,
