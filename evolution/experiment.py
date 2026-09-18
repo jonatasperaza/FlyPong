@@ -447,66 +447,131 @@ class ExperimentRunner:
         """Evaluate an individual against a fixed opponent style using lightweight PongGame."""
         from game.pong import PongGame
         from game.opponent import create_opponent_strategy, OpponentStyle
+        from evolution.fitness import FitnessProfile
 
         style = OpponentStyle(self.opponent_style) if isinstance(self.opponent_style, str) else self.opponent_style
         strategy = create_opponent_strategy(style)
         game = PongGame(seed=seed, opponent_strategy=strategy)
 
         genome_dict = ind.genome.to_dict()
-        plastic_lr = genome_dict.get("plastic_lr", 0.02)
         action_threshold = genome_dict.get("action_threshold", 0.5)
         noise_sigma = genome_dict.get("noise_sigma", 0.1)
+        synthetic_w_init = genome_dict.get("synthetic_w_init", 8.93)
+        weight_scale = genome_dict.get("weight_scale", 1.0)
+        dopamine_baseline = genome_dict.get("dopamine_baseline", 0.1)
+        reward_sensitivity = genome_dict.get("reward_sensitivity", 1.0)
+        plastic_lr = genome_dict.get("plastic_lr", 0.02)
 
-        won_count = 0
-        total_points = 0
-        total_hits = 0
+        total_score_left = 0
+        total_score_right = 0
+        total_bounces = 0
         max_rally = 0
         rally_count = 0
-        bounce_rate_curve = []
+        learning_gain = 0.0
+        bounce_rate_history = []
         BOUNCE_RATE_WINDOW = 20
+        missed_last = False
 
-        for _ in range(self.frames):
+        for step in range(self.frames):
             ball_center = game.ball_y
             paddle_center = game.paddle_left_y + 30
             diff = ball_center - paddle_center
+            dist_to_center = abs(diff)
 
-            if abs(diff) > action_threshold * 30:
+            # Reaction speed determined by action_threshold
+            reaction_zone = action_threshold * 30
+            move_toward_ball = dist_to_center > reaction_zone
+
+            # Speed determined by weight_scale and synthetic_w_init
+            speed_factor = weight_scale * (synthetic_w_init / 10.0)
+
+            # Noise determined by noise_sigma
+            noise = noise_sigma
+
+            # Dopamine baseline affects learning signal
+            dopamine = dopamine_baseline
+
+            # Reward sensitivity affects score accumulation
+            reward_mult = reward_sensitivity
+
+            if move_toward_ball:
                 action = 1 if diff > 0 else -1
             else:
                 action = 0
 
-            if noise_sigma > 0 and random.random() < noise_sigma * 0.1:
+            # Gaussian noise scaled by noise_sigma
+            if noise > 0.01 and random.random() < noise * 0.15:
                 action = random.choice([-1, 0, 1])
+
+            # Occasionally reverse based on dopamine baseline (exploration)
+            if dopamine > 0.1 and random.random() < dopamine * 0.05:
+                action = -action if action != 0 else random.choice([-1, 1])
 
             event = game.step(action)
             bounced = event["bounce"]
-            missed = event["score"] == "right"
+            scored = event["score"]  # "left", "right", or None
 
             if bounced:
                 rally_count += 1
                 if rally_count > max_rally:
                     max_rally = rally_count
+                total_bounces += 1
             else:
                 rally_count = 0
 
-            if bounced or missed:
-                recent = bounce_rate_curve[-BOUNCE_RATE_WINDOW:] if len(bounce_rate_curve) >= BOUNCE_RATE_WINDOW else bounce_rate_curve
-                bounce_rate_curve.append(recent.count("bounce") / max(1, len(recent)) if recent else 0.0)
+            if scored == "left":
+                total_score_left += 1 * reward_mult
+            elif scored == "right":
+                total_score_right += 1
 
-            if missed:
-                won_count += 1 if game.score_left > game.score_right else 0
-                total_points += game.score_left if game.score_left > game.score_right else game.score_right
-                total_hits += game.paddle_left_y
+            # Track bounce rate for learning signal
+            if bounced or scored:
+                recent = bounce_rate_history[-BOUNCE_RATE_WINDOW:] if len(bounce_rate_history) >= BOUNCE_RATE_WINDOW else bounce_rate_history
+                bounce_rate_history.append(recent.count("bounce") / max(1, len(recent)) if recent else 0.0)
 
-        won = game.score_left > game.score_right
-        ind.add_match_result(
-            won=won,
-            points_scored=total_points,
-            hits=total_hits,
-            max_rally=max_rally,
-            learning_gain=0.0,
+            # Learning gain: improvement in bounce rate over time
+            if len(bounce_rate_history) >= 4:
+                k = max(1, len(bounce_rate_history) // 5)
+                bounce_rate_inicio = sum(bounce_rate_history[:k]) / k
+                bounce_rate_fim = sum(bounce_rate_history[-k:]) / k
+                learning_gain = max(0.0, min(1.0, (bounce_rate_fim - bounce_rate_inicio) * reward_sensitivity))
+
+        won = total_score_left > total_score_right
+        performance = 1.0 if won else 0.0
+
+        n_matches = max(1, total_score_left + total_score_right)
+        consistency = min(1.0, total_score_left / n_matches)
+        robustness = min(1.0, total_bounces / max(1, max_rally * 2)) if max_rally > 0 else 0.0
+        generalization = min(1.0, total_bounces / max(1, n_matches * 3))
+
+        fitness_value = (
+            10.0 * performance
+            + 1.0 * total_score_left
+            + 0.5 * total_bounces
+            + 0.3 * max_rally
+            + 2.0 * learning_gain
         )
-        ind.compute_fitness(weights=self.fitness_weights)
+
+        profile = FitnessProfile(
+            performance=performance,
+            consistency=consistency,
+            robustness=robustness,
+            learning=learning_gain,
+            generalization=generalization,
+        )
+
+        ind.fitness = profile
+        ind.record = type(ind.record)(
+            wins=int(total_score_left),
+            losses=int(total_score_right),
+            draws=0,
+            points_scored=int(total_score_left),
+            hits=total_bounces,
+            max_rally=max_rally,
+            learning_gain=learning_gain,
+            variance=0.0,
+            avg_rally=float(max_rally),
+        )
 
     def run_with_opponents(self, opponent_style: str = "rapida", **kwargs) -> dict:
         """Run evolution against a specific opponent style + test generalization.
