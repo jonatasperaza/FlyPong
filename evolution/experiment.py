@@ -238,6 +238,7 @@ class ExperimentRunner:
         target_score: int | None = None,
         fitness_weights: dict | None = None,
         evaluate_with_weights: bool = True,
+        opponent_style: str | None = None,
     ):
         self.population_size = population_size
         self.generations = generations
@@ -253,6 +254,7 @@ class ExperimentRunner:
         self.target_score = target_score
         self.fitness_weights = fitness_weights or DEFAULT_WEIGHTS
         self.evaluate_with_weights = evaluate_with_weights
+        self.opponent_style = opponent_style
 
     def run_experiment(self, experiment_type: str, seed: int = None) -> ExperimentResult:
         """Run a single experiment type."""
@@ -401,13 +403,17 @@ class ExperimentRunner:
         return comp
 
     def _evaluate_individual(self, ind: Individual, population: list[Individual], rng: random.Random, evaluator: Evaluator) -> None:
-        """Evaluate one individual against a random opponent."""
-        # Pick a random opponent from the population
+        """Evaluate one individual against a random opponent or a fixed opponent style."""
+        seed = rng.randint(0, 1_000_000)
+
+        if self.opponent_style is not None:
+            self._evaluate_against_style(ind, seed)
+            return
+
         opponents = [other for other in population if other is not ind]
         if not opponents:
             return
         opponent = rng.choice(opponents)
-        seed = rng.randint(0, 1_000_000)
 
         if self.evaluate_with_weights and ind.inheritance_mode in (InheritanceMode.LAMARCKIAN, InheritanceMode.EVOLVE_LEARN):
             result = evaluator.evaluate_with_weights(ind, opponent, seed)
@@ -420,14 +426,13 @@ class ExperimentRunner:
                 learning_gain=result.left_stats["learning_gain"],
                 avg_rally=0.0,
             )
-            # Store learned weights for Lamarckian reproduction
             if result.synaptic_weights is not None:
                 ind.synaptic_weights = result.synaptic_weights
                 ind.weight_mean = result.weight_mean
                 ind.weight_std = result.weight_std
         else:
             result = evaluator.evaluate_individual(ind, opponent, seed)
-            won = result > 0  # heuristic
+            won = result > 0
             ind.add_match_result(
                 won=won,
                 points_scored=1 if won else 0,
@@ -436,8 +441,117 @@ class ExperimentRunner:
                 learning_gain=0.0,
             )
 
-        # Compute multi-dimensional fitness
         ind.compute_fitness(weights=self.fitness_weights)
+
+    def _evaluate_against_style(self, ind: Individual, seed: int) -> None:
+        """Evaluate an individual against a fixed opponent style using lightweight PongGame."""
+        from game.pong import PongGame
+        from game.opponent import create_opponent_strategy, OpponentStyle
+
+        style = OpponentStyle(self.opponent_style) if isinstance(self.opponent_style, str) else self.opponent_style
+        strategy = create_opponent_strategy(style)
+        game = PongGame(seed=seed, opponent_strategy=strategy)
+
+        genome_dict = ind.genome.to_dict()
+        plastic_lr = genome_dict.get("plastic_lr", 0.02)
+        action_threshold = genome_dict.get("action_threshold", 0.5)
+        noise_sigma = genome_dict.get("noise_sigma", 0.1)
+
+        won_count = 0
+        total_points = 0
+        total_hits = 0
+        max_rally = 0
+        rally_count = 0
+        bounce_rate_curve = []
+        BOUNCE_RATE_WINDOW = 20
+
+        for _ in range(self.frames):
+            ball_center = game.ball_y
+            paddle_center = game.paddle_left_y + 30
+            diff = ball_center - paddle_center
+
+            if abs(diff) > action_threshold * 30:
+                action = 1 if diff > 0 else -1
+            else:
+                action = 0
+
+            if noise_sigma > 0 and random.random() < noise_sigma * 0.1:
+                action = random.choice([-1, 0, 1])
+
+            event = game.step(action)
+            bounced = event["bounce"]
+            missed = event["score"] == "right"
+
+            if bounced:
+                rally_count += 1
+                if rally_count > max_rally:
+                    max_rally = rally_count
+            else:
+                rally_count = 0
+
+            if bounced or missed:
+                recent = bounce_rate_curve[-BOUNCE_RATE_WINDOW:] if len(bounce_rate_curve) >= BOUNCE_RATE_WINDOW else bounce_rate_curve
+                bounce_rate_curve.append(recent.count("bounce") / max(1, len(recent)) if recent else 0.0)
+
+            if missed:
+                won_count += 1 if game.score_left > game.score_right else 0
+                total_points += game.score_left if game.score_left > game.score_right else game.score_right
+                total_hits += game.paddle_left_y
+
+        won = game.score_left > game.score_right
+        ind.add_match_result(
+            won=won,
+            points_scored=total_points,
+            hits=total_hits,
+            max_rally=max_rally,
+            learning_gain=0.0,
+        )
+        ind.compute_fitness(weights=self.fitness_weights)
+
+    def run_with_opponents(self, opponent_style: str = "rapida", **kwargs) -> dict:
+        """Run evolution against a specific opponent style + test generalization.
+
+        Returns dict with 'evolution_result' and 'generalization_result'.
+        """
+        from game.opponent import OpponentStyle
+        from evolution.opponent_test import evaluate_generalization
+
+        style_name = opponent_style if isinstance(opponent_style, str) else opponent_style.value
+        self.opponent_style = style_name
+
+        print(f"Running evolution against opponent style: {style_name}")
+        seed = kwargs.pop("seed", self.seed)
+        pop_size = kwargs.pop("population_size", self.population_size)
+        gens = kwargs.pop("generations", self.generations)
+
+        runner = ExperimentRunner(
+            population_size=pop_size,
+            generations=gens,
+            seed=seed,
+            workers=self.workers,
+            frames=self.frames,
+            calibration_frames=self.calibration_frames,
+            hall_of_fame_size=self.hall_of_fame_size,
+            output_dir=self.output_dir,
+            fitness_weights=self.fitness_weights,
+            opponent_style=style_name,
+            evaluate_with_weights=False,
+        )
+
+        evo_result = runner.run_experiment(ExperimentType.GENOME_ONLY, seed=seed)
+        champion = evo_result.champion
+
+        gen_result = None
+        if champion is not None:
+            gen_result = evaluate_generalization(champion.genome.to_dict(), frames=self.frames, seed=seed)
+
+        return {
+            "evolution_result": evo_result,
+            "generalization_result": gen_result,
+            "opponent_style": style_name,
+            "champion_fitness": evo_result.best_fitness,
+            "generalization_score": gen_result.generalization_score if gen_result else None,
+        }
 
     @staticmethod
     def _std(values: list[float]) -> float:
