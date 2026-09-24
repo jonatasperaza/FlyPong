@@ -1211,7 +1211,12 @@ sobreposição, em ≥5 de 6 seeds") foi cumprido em **6/6 seeds, nas duas
 condições**. **Ressalva principal: tudo foi medido no grafo sintético**
 (`fetch_connectome.py --synthetic`). O download dos dados reais foi bloqueado
 pela rede do ambiente (403 em `neuprint.janelia.org`), então o resultado
-ainda precisa ser reproduzido no MaleCNS v1.0.
+ainda precisa ser reproduzido no MaleCNS v1.0. **Atualização (seções 5 e 6):** no
+MaleCNS v1.0 real, o critério **não** foi cumprido (2/6 seeds na invertida,
+0/6 na normal). Há um efeito consistente e modesto na invertida: 36,9%
+contra 26,3% do controle, com a treinada à frente em 6/6 seeds. Isso veio
+depois de corrigir a retina (o eixo antigo separava os olhos) e a saturação
+dos neurônios LC. A anatomia real limita o que a regra consegue aprender.
 
 #### 1. Nova métrica: saques independentes (`serve_eval.py`)
 
@@ -1369,6 +1374,85 @@ ficou em ~19–29%, perto do paddle parado. A investigação:
   certo.
 - No grafo sintético, `elevation` e `pca` dão exatamente as mesmas posições
   (testado), então os resultados acima não mudam.
+
+#### 6. Dados reais com retina por elevação: efeito modesto, critério não cumprido
+
+Com as colunas `retina_x/y/z` baixadas (`scripts/add_retina_coords.py`),
+o eixo x separa os olhos (esquerdo 70–89 mil, direito 7–26 mil) e o y varia
+de ~15 mil a ~50 mil dentro de cada olho, como se espera do eixo
+dorso-ventral. Com `--retina-axis elevation`, a bola passa a estimular a
+retina em qualquer altura. Mesmo assim, o protocolo da seção 3 **não
+aprendeu** no dado real: 3.000 saques, curva entre 16% e 26% na seed de
+validação, igual ao controle. O resultado foi idêntico na máquina do autor
+(Windows) e aqui (Linux).
+
+**Onde a informação se perdia.** Um decodificador linear treinado em metade
+dos frames e testado na outra (bola acima/abaixo do paddle; acaso = 54,5%):
+
+| camada | sintético | real | real + homeostase nos LC |
+|---|---:|---:|---:|
+| fotorreceptores | 100% | 100% | — |
+| interneurônios | 99% | 97% | — |
+| T4/T5 (motion) | 98% | 95% | — |
+| LC4/LPLC2 (object) | 95% | **60%** | **~89–90%** |
+| LC10a (target) | 96% | 65% | 58–67% |
+| descendentes | 76% | 60% | — |
+
+Os neurônios LC recebem centenas de sinapses e ficam saturados: 100% dos
+LC4/LPLC2 disparam em todo frame. Estender o escalonamento homeostático,
+sem recompensa, a **todas** as entradas dos LC na fase de desenvolvimento
+(`--homeostasis-scope visual`, classe `HomeostaticScaler`) recupera a
+informação na camada object.
+
+**A anatomia restringe o que pode ser aprendido.** Depois da fase de
+desenvolvimento, medimos a sintonia de cada entrada plástica dos 4
+descendentes:
+- GF_L tem 62 entradas que preferem "bola acima" e 48 "abaixo";
+- GF_R tem 35 "acima" e 65 "abaixo";
+- os dois DNa10 recebem **só** entradas LC10a que preferem "abaixo" (36 no
+  DNa10_R, 22 no DNa10_L, nenhuma "acima").
+
+Na condição **invertida** ("sobe" = lado esquerdo), a recompensa só precisa
+reforçar o que o GF_L já oferece. Na **normal** ("sobe" = lado direito), o
+DNa10_R empurra na direção errada e o "sobe" teria de ser construído quase
+do zero.
+
+**Protocolo final.** Hiperparâmetros fixos da seção 3, mais retina por
+elevação, homeostase nos LC e 1.500 saques de treino. A escolha entre eta
+0,001/0,003 e ruído 6/3 e o número de saques foram decididos só na seed de
+validação 2001. Nas 6 seeds de teste × 300 saques:
+
+| condição | treinada | controle homeostase | controle inato |
+|---|---:|---:|---:|
+| invertida | **36,9%** [34,7; 39,1] | 26,3% [24,3; 28,4] | 24,7% [22,8; 26,8] |
+| normal | 29,2% [27,2; 31,4] | 25,2% [23,3; 27,3] | 26,3% [24,3; 28,4] |
+
+(IC95 de Wilson sobre os 1.800 saques somados)
+
+- **O critério pré-definido não foi cumprido.** A treinada ficou acima dos
+  dois controles, com IC sem sobreposição na mesma seed, em **2/6 seeds**
+  na invertida e **0/6** na normal. O resultado é negativo segundo a regra
+  que fixamos antes de rodar.
+- **Há, porém, um efeito consistente na invertida.** A treinada superou o
+  controle homeostase nas **6/6 seeds** (+5 a +18 pontos, média +10,6;
+  teste do sinal bilateral p = 0,031). Somando os 1.800 saques, os ICs não
+  se sobrepõem. A curva média vai de 24,8% (0 saques) para 35,2% (500) e
+  37,5% (1.500). Esta análise somada não era o critério pré-definido e deve
+  ser lida como exploratória.
+- **Na normal, o efeito é pequeno e incerto:** +4 pontos no total, 4 seeds
+  positivas e 2 empates.
+- **Leitura honesta:** a mesma regra que reaprende a jogar no grafo
+  sintético (seção 3) produz, no conectoma real, só um ganho modesto, e
+  apenas onde a fiação já oferece o material certo. O gargalo não parece ser
+  a regra. Os candidatos são o subgrafo e o modelo neural: 4 descendentes,
+  LC10a sem entradas "acima" para os DNa10, LIF com parâmetros uniformes e
+  ganho sináptico único. Os próximos passos naturais são incluir mais
+  descendentes de direção de voo e testar ganhos por tipo celular.
+- Resultados por seed em
+  `docs/achado-19-resultados-real-elevation-visual-1500serves.jsonl`.
+  Reproduzir: `python scripts/add_retina_coords.py` e depois
+  `python scripts/run_achado19.py --retina-axis elevation
+  --homeostasis-scope visual --serves 1500`.
 
 Reproduzir:
 `python fetch_connectome.py --synthetic --out-dir /tmp/syn && python
