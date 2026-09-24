@@ -15,7 +15,7 @@ import numpy as np
 import sim.network as netmod
 from sim.network import ConnectomeNetwork
 from game.pong import PongGame, WIDTH, HEIGHT, PADDLE_H
-from game.sensory_map import ball_to_photoreceptor_stimulus
+from game.sensory_map import ball_to_photoreceptor_stimulus, egocentric_ball_y
 from game.motor_read import read_motor_action
 
 DATA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "connectome_data")
@@ -49,7 +49,11 @@ class FlyPongRunner:
         game_seed=42,
         proximity_reward_current=PROXIMITY_REWARD_CURRENT,
         proximity_progress_deadzone=PROXIMITY_PROGRESS_DEADZONE,
+        sensory_mode="allocentric",
     ):
+        if sensory_mode not in {"allocentric", "egocentric"}:
+            raise ValueError(f"unknown sensory mode: {sensory_mode}")
+        self.sensory_mode = sensory_mode
         if reward_mode not in {"sparse", "dense", "mix", "proximity"}:
             raise ValueError(f"unknown reward mode: {reward_mode}")
         if not 0.0 <= mix_ratio <= 1.0:
@@ -211,9 +215,18 @@ class FlyPongRunner:
         self.reward_current = float(current)
         self.reward_pulse_remaining = REWARD_PULSE_STEPS
 
+    def perceived_ball_y(self, game=None):
+        """Altura da bola como a retina a ve no modo sensorial atual."""
+        game = self.game if game is None else game
+        if self.sensory_mode == "egocentric":
+            return egocentric_ball_y(
+                game.ball_y, game.paddle_left_y + PADDLE_H / 2, HEIGHT
+            )
+        return game.ball_y
+
     def step_frame(self):
         stim = ball_to_photoreceptor_stimulus(
-            self.game.ball_y,
+            self.perceived_ball_y(),
             self.game.ball_x,
             HEIGHT,
             WIDTH,
@@ -477,6 +490,13 @@ def main():
         default="real",
         choices=["real", "synthetic_strong", "synthetic_plastic"],
     )
+    ap.add_argument(
+        "--sensory-mode",
+        default="allocentric",
+        choices=["allocentric", "egocentric"],
+        help="egocentric: retina centrada no paddle (a mosca ve a bola "
+        "relativa ao proprio corpo).",
+    )
     ap.add_argument("--synthetic-gain", type=float, default=10.0)
     ap.add_argument("--synthetic-w-init", type=float, default=None)
     ap.add_argument("--plastic-lr", type=float, default=None)
@@ -507,6 +527,7 @@ def main():
         proximity_reward_current=args.proximity_reward_current,
         proximity_progress_deadzone=args.proximity_deadzone,
         signal_mode=args.signal_mode,
+        sensory_mode=args.sensory_mode,
         synthetic_gain=args.synthetic_gain,
         game_seed=args.seed,
         substeps=1 if fast else args.substeps,

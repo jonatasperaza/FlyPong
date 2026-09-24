@@ -138,22 +138,29 @@ def invert_readout(runner: "main.FlyPongRunner") -> None:
     runner.motor_baseline_diff = -runner.motor_baseline_diff
 
 
-def network_policy(runner: "main.FlyPongRunner"):
+def network_policy(runner: "main.FlyPongRunner", noise_std: float = 0.0,
+                   noise_seed: int = 0):
     """Politica da rede sem reforco: mesma via sensorio-motora de
     FlyPongRunner.step_frame (estimulo -> substeps -> readout), mas a corrente
-    externa e so o estimulo visual."""
+    externa e so o estimulo visual (mais ruido intrinseco opcional nos
+    descendentes, com RNG proprio)."""
     net = runner.net
     external = np.zeros(net.n, dtype=np.float64)
     accum = np.zeros(net.n, dtype=np.float64)
+    desc = net.descending_idx
+    noise_rng = np.random.default_rng(noise_seed)
 
     def act(game: PongGame) -> int:
         stim = ball_to_photoreceptor_stimulus(
-            game.ball_y, game.ball_x, HEIGHT, WIDTH, net.photoreceptor_positions
+            runner.perceived_ball_y(game), game.ball_x, HEIGHT, WIDTH,
+            net.photoreceptor_positions,
         )
         accum.fill(0.0)
         for _ in range(runner.substeps):
             external.fill(0.0)
             external[net.photoreceptor_idx] += stim
+            if noise_std > 0:
+                external[desc] += noise_rng.normal(0.0, noise_std, len(desc))
             np.add(accum, net.step(external), out=accum)
         return read_motor_action(
             accum, net.motor_up_idx, net.motor_down_idx,
@@ -163,14 +170,19 @@ def network_policy(runner: "main.FlyPongRunner"):
     return act
 
 
-def evaluate_network(runner: "main.FlyPongRunner", n_trials: int, eval_seed: int) -> dict:
-    """Avalia a rede com pesos congelados. Restaura PLASTIC_LR ao sair."""
+def evaluate_network(runner: "main.FlyPongRunner", n_trials: int, eval_seed: int,
+                     noise_std: float = 0.0) -> dict:
+    """Avalia a rede com pesos congelados. Restaura PLASTIC_LR ao sair.
+
+    `noise_std`: ruido intrinseco nos descendentes (mesmo valor para rede
+    treinada e controles); a semente do ruido deriva de `eval_seed`."""
     saved_lr = netmod.PLASTIC_LR
     w_before = runner.net.W.data.copy()
     netmod.PLASTIC_LR = 0.0
     try:
         result = run_serves(
-            network_policy(runner), n_trials, eval_seed,
+            network_policy(runner, noise_std, noise_seed=eval_seed + 104729),
+            n_trials, eval_seed,
             on_trial_start=runner.net.reset,
         )
     finally:
@@ -178,6 +190,7 @@ def evaluate_network(runner: "main.FlyPongRunner", n_trials: int, eval_seed: int
         runner.net.reset()
     if not np.array_equal(w_before, runner.net.W.data):
         raise RuntimeError("pesos mudaram durante a avaliacao congelada")
+    result["eval_noise_std"] = noise_std
     return result
 
 
@@ -192,10 +205,12 @@ def oracle_policy(game: PongGame) -> int:
     return 0 if abs(diff) < 1.0 else (1 if diff > 0 else -1)
 
 
-def build_runner(data_dir: str, *, substeps=None, calibration_frames=None):
+def build_runner(data_dir: str, *, substeps=None, calibration_frames=None,
+                 sensory_mode="allocentric"):
     return main.FlyPongRunner(
         data_dir,
         signal_mode="real",
+        sensory_mode=sensory_mode,
         substeps=substeps,
         record_history=False,
         calibration_frames=calibration_frames,
@@ -211,6 +226,8 @@ def main_cli():
     ap.add_argument("--eval-seeds", type=int, nargs="+", default=list(EVAL_SEEDS))
     ap.add_argument("--substeps", type=int, default=None)
     ap.add_argument("--calibration-frames", type=int, default=None)
+    ap.add_argument("--sensory-mode", choices=["allocentric", "egocentric"],
+                    default="allocentric")
     ap.add_argument("--no-baselines", action="store_true",
                     help="nao roda as referencias paddle-parado e oraculo")
     ap.add_argument("--out", default=None, help="arquivo JSONL de saida (padrao: runs/)")
@@ -230,7 +247,8 @@ def main_cli():
 
     conditions = ["normal", "inverted"] if args.condition == "both" else [args.condition]
     runner = build_runner(args.data_dir, substeps=args.substeps,
-                          calibration_frames=args.calibration_frames)
+                          calibration_frames=args.calibration_frames,
+                          sensory_mode=args.sensory_mode)
     inverted = False
     for cond in conditions:
         if (cond == "inverted") != inverted:
@@ -242,6 +260,7 @@ def main_cli():
             rows.append({
                 "policy": "network_innate",
                 "condition": cond,
+                "sensory_mode": args.sensory_mode,
                 **res,
                 "motor_baseline_diff": runner.motor_baseline_diff,
                 "elapsed_seconds": time.perf_counter() - t0,

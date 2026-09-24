@@ -25,3 +25,16 @@ def ball_to_photoreceptor_stimulus(ball_y, ball_x, height, width, positions,
     proximity = 0.3 + 0.7 * proximity  # nunca deixa o estimulo zerar
 
     return gain * proximity * bump
+
+
+def egocentric_ball_y(ball_y, paddle_center, height):
+    """Altura "vista" pela retina num referencial centrado no paddle.
+
+    O olho da mosca se move com o corpo: o centro da retina e a altura do
+    paddle, e a bola aparece deslocada pela diferenca bola - paddle. A
+    diferenca vai de -height a +height; dividir por 2 a mantem dentro da
+    retina ([0, height]). O modo alocentrico original (so a posicao absoluta
+    da bola) nao informa a posicao do paddle, entao a direcao correta nao
+    pode ser inferida a partir dele (ver serve_eval.py).
+    """
+    return height / 2 + (ball_y - paddle_center) / 2
