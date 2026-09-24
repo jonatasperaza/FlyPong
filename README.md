@@ -1454,6 +1454,44 @@ validação 2001. Nas 6 seeds de teste × 300 saques:
   `python scripts/run_achado19.py --retina-axis elevation
   --homeostasis-scope visual --serves 1500`.
 
+#### 7. Diagnóstico para o próximo passo: onde está o gargalo no dado real
+
+Pergunta: o ganho modesto no dado real vem da fiação (as sinapses LC →
+descendentes não carregam a informação) ou do canal de saída (4 neurônios de
+spikes)?
+
+**Duas estimativas de teto que falharam.**
+- Pesos ótimos por mínimos quadrados sobre a corrente.
+- Regra delta supervisionada, com a rede de spikes simulada.
+
+Calibradas no grafo sintético, as duas ficaram **abaixo** do próprio
+aprendizado por recompensa: 41% e 29% na condição invertida, contra 57%. Não
+servem como teto e não foram usadas em nenhuma conclusão.
+
+**O que funcionou** (`scripts/diagnostics/wiring_info.py`): um classificador
+linear sobre as contagens por frame das entradas plásticas dos
+descendentes, com o sinal que o readout impõe (entradas do grupo "sobe"
+com +, do grupo "desce" com −) e pesos ≥ 0, como sinapses. Acaso = 53,4%.
+
+| | sintético | real |
+|---|---:|---:|
+| normal, com os sinais do readout | 93,9% | 72,4% |
+| invertida, com os sinais do readout | 88,8% | 82,4% |
+| mesmas entradas, sem restrição | 93,5% | 84,1% |
+
+**Leitura:**
+- **Na invertida, a fiação real carrega quase tanta informação quanto a
+  sintética** (82% contra 89%). O aprendizado, porém, chega a 37% contra 57%.
+  O gargalo, então, está sobretudo depois das sinapses: 4 neurônios com ~1
+  spike por frame cada, mais o ruído de exploração, são um canal de saída
+  estreito demais.
+- **Na normal, a própria fiação é mais pobre** (72%). Isso é coerente com a
+  assimetria anatômica da seção 6.
+- **Próximo passo (Achado 20):** ampliar o readout com mais descendentes
+  ligados à direção de voo. Isso dá mais canais de saída e novas rotas para
+  o lado sem material. `scripts/find_dn_candidates.py` lista, via neuPrint,
+  os descendentes que mais recebem dos LC do subgrafo e de todos os LC.
+
 Reproduzir:
 `python fetch_connectome.py --synthetic --out-dir /tmp/syn && python
 scripts/run_achado19.py --data-dir /tmp/syn --out /tmp/achado19.jsonl`
