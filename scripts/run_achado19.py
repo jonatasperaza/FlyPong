@@ -38,12 +38,12 @@ CONDITIONS = ("inverted", "normal")
 
 
 def _job(args):
-    data_dir, condition, policy, train_seed, eval_seed, trials, curve_every, axis = args
+    data_dir, condition, policy, train_seed, eval_seed, trials, curve_every, axis, scope, serves = args
     row = st.run_condition(
         data_dir, condition=condition, policy=policy, train_seed=train_seed,
         eval_seed=eval_seed, eval_trials=trials,
         curve_every=curve_every if policy == "trained" else 0, verbose=False,
-        retina_axis=axis,
+        retina_axis=axis, homeostasis_scope=scope, n_serves=serves,
     )
     row["data_source"] = data_source(data_dir)
     return row
@@ -54,9 +54,13 @@ def data_source(data_dir) -> str:
         return json.load(f).get("source", "desconhecido")
 
 
-def origin(row: dict) -> tuple[str, str]:
-    """(origem dos dados, eixo da retina) de uma linha de resultado."""
-    return (str(row.get("data_source")), row.get("config", {}).get("retina_axis", "pca"))
+def origin(row: dict) -> tuple:
+    """(origem dos dados, eixo da retina, escopo da homeostase, saques de
+    treino) de uma linha de resultado."""
+    cfg = row.get("config", {})
+    return (str(row.get("data_source")), cfg.get("retina_axis", "pca"),
+            cfg.get("homeostasis_scope", "plastic"),
+            int(cfg.get("n_serves", st.DEFAULTS["n_serves"])))
 
 
 def load(path: Path) -> dict:
@@ -105,6 +109,8 @@ def main_cli():
     ap.add_argument("--retina-axis", choices=["pca", "elevation"], default="pca",
                     help="elevation: posicao na retina = elevacao dentro de cada olho "
                          "(exige retina_y; ver scripts/add_retina_coords.py)")
+    ap.add_argument("--homeostasis-scope", choices=["plastic", "visual"], default="plastic")
+    ap.add_argument("--serves", type=int, default=st.DEFAULTS["n_serves"])
     ap.add_argument("--trials", type=int, default=se.DEFAULT_TRIALS)
     ap.add_argument("--curve-every", type=int, default=500)
     ap.add_argument("--workers", type=int, default=4)
@@ -116,19 +122,25 @@ def main_cli():
         return 2
     source = data_source(args.data_dir)
     suffix = "" if args.retina_axis == "pca" else f"-{args.retina_axis}"
+    if args.homeostasis_scope != "plastic":
+        suffix += f"-{args.homeostasis_scope}"
+    if args.serves != st.DEFAULTS["n_serves"]:
+        suffix += f"-{args.serves}serves"
     out = Path(args.out) if args.out else HERE / "docs" / f"achado-19-resultados-{source}{suffix}.jsonl"
     rows = load(out)
-    other = {origin(r) for r in rows.values()} - {(source, args.retina_axis)}
+    this = (source, args.retina_axis, args.homeostasis_scope, args.serves)
+    other = {origin(r) for r in rows.values()} - {this}
     if other:
         print(f"ERRO: {out} tem resultados de outra origem/eixo ({sorted(other)}); "
-              f"esta rodada e ({source!r}, {args.retina_axis!r}). Use outro --out.")
+              f"esta rodada e {this}. Use outro --out.")
         return 2
-    print(f"[achado19] dados: {source} ({args.data_dir}), retina: {args.retina_axis}; "
+    print(f"[achado19] dados: {source} ({args.data_dir}), retina: {args.retina_axis}, "
+          f"homeostase: {args.homeostasis_scope}, saques: {args.serves}; "
           f"resultados: {out}", flush=True)
     if not args.summary_only:
         jobs = [
             (args.data_dir, cond, pol, tr, ev, args.trials, args.curve_every,
-             args.retina_axis)
+             args.retina_axis, args.homeostasis_scope, args.serves)
             for cond in CONDITIONS
             for pol in ("trained",) + st.POLICIES[1:]
             for tr, ev in zip(se.TRAIN_SEEDS, se.EVAL_SEEDS)
