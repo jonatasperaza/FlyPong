@@ -1289,7 +1289,7 @@ Referências no grafo sintético: paddle parado 24,7%, oráculo 100%.
 Por seed, na condição invertida, a treinada ficou entre 52,0% e 60,7%. O
 limite inferior do IC95 dela (≥0,464) ficou sempre acima do limite superior
 dos dois controles (≤0,202). Na condição normal, a treinada ficou entre
-97,7% e 100%. Os valores por seed estão em `docs/achado-19-resultados.jsonl`.
+97,7% e 100%. Os valores por seed estão em `docs/achado-19-resultados-synthetic.jsonl`.
 
 Curva média de aprendizado (100 saques por ponto, pesos congelados):
 
@@ -1328,9 +1328,10 @@ religação que a inversão exige.
   (a conectividade sintética é topográfica). O teto da condição invertida
   (~60%) é estrutural, não da regra. No grafo real, o teto pode ser outro,
   para cima ou para baixo.
-- **Próximo passo obrigatório:** rodar `python scripts/run_achado19.py` com
-  os dados reais (`NEUPRINT_TOKEN` e acesso de rede a
-  `neuprint.janelia.org`). O grafo real tem ~45 mil neurônios, contra 750 do
+- **Próximo passo obrigatório:** baixar os dados reais (`NEUPRINT_TOKEN` e
+  acesso de rede a `neuprint.janelia.org`) e rodar
+  `python scripts/run_achado19.py`. O resultado vai para
+  `docs/achado-19-resultados-real.jsonl`; o script recusa misturar origens. O grafo real tem ~45 mil neurônios, contra 750 do
   sintético, então cada execução deve ser dezenas de vezes mais lenta.
 
 Reproduzir:

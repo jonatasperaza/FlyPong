@@ -11,7 +11,10 @@ Protocolo definido antes de rodar (ver README, Achado 19):
     do IC95 de cada controle (sem sobreposicao) em pelo menos 5 de 6 seeds.
 
 Anexa uma linha JSON por (condicao, politica, seed) em --out e recusa
-sobrescrever resultados ja existentes.
+sobrescrever resultados ja existentes. Por padrao o arquivo de saida depende
+da origem dos dados (`metadata.json` -> "source"):
+docs/achado-19-resultados-<source>.jsonl. O script recusa misturar
+resultados de origens diferentes no mesmo arquivo.
 """
 
 from __future__ import annotations
@@ -40,9 +43,13 @@ def _job(args):
         eval_seed=eval_seed, eval_trials=trials,
         curve_every=curve_every if policy == "trained" else 0, verbose=False,
     )
-    with open(Path(data_dir) / "metadata.json", encoding="utf-8") as f:
-        row["data_source"] = json.load(f).get("source", "desconhecido")
+    row["data_source"] = data_source(data_dir)
     return row
+
+
+def data_source(data_dir) -> str:
+    with open(Path(data_dir) / "metadata.json", encoding="utf-8") as f:
+        return json.load(f).get("source", "desconhecido")
 
 
 def load(path: Path) -> dict:
@@ -86,15 +93,26 @@ def main_cli():
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--data-dir", default=main.DATA_DIR)
-    ap.add_argument("--out", default=str(HERE / "docs" / "achado-19-resultados.jsonl"))
+    ap.add_argument("--out", default=None,
+                    help="padrao: docs/achado-19-resultados-<source>.jsonl")
     ap.add_argument("--trials", type=int, default=se.DEFAULT_TRIALS)
     ap.add_argument("--curve-every", type=int, default=500)
     ap.add_argument("--workers", type=int, default=4)
     ap.add_argument("--summary-only", action="store_true")
     args = ap.parse_args()
 
-    out = Path(args.out)
+    if not (Path(args.data_dir) / "neurons.parquet").exists():
+        print(f"ERRO: dados do conectoma nao encontrados em {args.data_dir}.")
+        return 2
+    source = data_source(args.data_dir)
+    out = Path(args.out) if args.out else HERE / "docs" / f"achado-19-resultados-{source}.jsonl"
     rows = load(out)
+    other = {r.get("data_source") for r in rows.values()} - {source}
+    if other:
+        print(f"ERRO: {out} tem resultados de outra origem ({', '.join(map(str, other))}); "
+              f"os dados em {args.data_dir} sao '{source}'. Use outro --out.")
+        return 2
+    print(f"[achado19] dados: {source} ({args.data_dir}); resultados: {out}", flush=True)
     if not args.summary_only:
         jobs = [
             (args.data_dir, cond, pol, tr, ev, args.trials, args.curve_every)
