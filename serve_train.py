@@ -37,7 +37,7 @@ import numpy as np
 import main
 import serve_eval as se
 import sim.network as netmod
-from sim.covariance_rule import CovarianceRPELearner
+from sim.covariance_rule import CovarianceRPELearner, HomeostaticScaler
 from game.pong import PongGame, HEIGHT, WIDTH, PADDLE_H
 from game.sensory_map import ball_to_photoreceptor_stimulus
 from game.motor_read import read_motor_action
@@ -54,7 +54,7 @@ def _distance(game):
 
 def train(runner, learner, *, n_serves, train_seed, noise_std, reward_mode,
           elig_mode="covariance", curve_every=0, curve_seed=None, curve_trials=100,
-          curve_noise=0.0, log=None):
+          curve_noise=0.0, log=None, on_frame=None):
     """Treina `learner` em `n_serves` saques. Devolve a curva de avaliacao
     (lista de dicts) se `curve_every` > 0."""
     net = runner.net
@@ -113,6 +113,8 @@ def train(runner, learner, *, n_serves, train_seed, noise_std, reward_mode,
                     perturbation=noise_sum if elig_mode == "perturbation" else None,
                     apply=done or reward_mode != "sparse",
                 )
+                if on_frame is not None:
+                    on_frame(accum)
                 if done:
                     hits += bool(event["bounce"])
                     break
@@ -132,6 +134,7 @@ DEFAULTS = dict(
     n_serves=3000, eta=0.001, noise_std=6.0, reward_mode="dense",
     elig_mode="perturbation", elig_decay=0.0, w_cap_factor=4.0,
     dev_serves=300, homeostasis_rate=0.01, target_rate=0.3,
+    homeostasis_scope="plastic",
 )
 DEV_SEED_OFFSET = 500_000
 
@@ -146,6 +149,7 @@ def run_condition(data_dir, *, condition, policy, train_seed, eval_seed,
                   dev_serves=DEFAULTS["dev_serves"],
                   homeostasis_rate=DEFAULTS["homeostasis_rate"],
                   target_rate=DEFAULTS["target_rate"],
+                  homeostasis_scope=DEFAULTS["homeostasis_scope"],
                   curve_every=0, curve_trials=100, verbose=True,
                   retina_axis="pca"):
     """Roda uma condicao do experimento.
@@ -173,8 +177,17 @@ def run_condition(data_dir, *, condition, policy, train_seed, eval_seed,
     w0 = runner.net.W.data[runner.net.plastic_data_idx].copy()
     t0 = time.perf_counter()
     tr = {"curve": [], "train_hit_rate": None}
+    if homeostasis_scope not in ("plastic", "visual"):
+        raise ValueError(f"unknown homeostasis_scope: {homeostasis_scope}")
+    on_frame = None
+    if homeostasis_scope == "visual":
+        # Tambem escala todas as entradas dos neuronios LC (object/target).
+        net = runner.net
+        lc = np.concatenate([net.object_idx, net.target_idx])
+        on_frame = HomeostaticScaler(net, lc, rate=homeostasis_rate,
+                                     target_rate=target_rate).update
     if policy != "control_innate" and dev_serves > 0:
-        train(runner, learner, n_serves=dev_serves,
+        train(runner, learner, n_serves=dev_serves, on_frame=on_frame,
               train_seed=train_seed + DEV_SEED_OFFSET, noise_std=noise_std,
               # eta = 0 aqui, entao a recompensa nao importa; "dense" so
               # garante que a homeostase atualiza a cada frame.
@@ -201,7 +214,8 @@ def run_condition(data_dir, *, condition, policy, train_seed, eval_seed,
                    "reward_mode": reward_mode, "elig_mode": elig_mode,
                    "elig_decay": elig_decay, "w_cap_factor": w_cap_factor,
                    "dev_serves": dev_serves, "homeostasis_rate": homeostasis_rate,
-                   "target_rate": target_rate, "sensory_mode": "egocentric",
+                   "target_rate": target_rate, "homeostasis_scope": homeostasis_scope,
+                   "sensory_mode": "egocentric",
                    "retina_axis": retina_axis},
         "weights": {"mean_before": float(w0.mean()), "mean_after": float(w1.mean()),
                     "frac_zero_after": float((w1 <= 1e-9).mean()),
@@ -229,6 +243,10 @@ def main_cli():
     ap.add_argument("--dev-serves", type=int, default=DEFAULTS["dev_serves"])
     ap.add_argument("--homeostasis-rate", type=float, default=DEFAULTS["homeostasis_rate"])
     ap.add_argument("--target-rate", type=float, default=DEFAULTS["target_rate"])
+    ap.add_argument("--homeostasis-scope", choices=["plastic", "visual"],
+                    default=DEFAULTS["homeostasis_scope"],
+                    help="visual: a fase de desenvolvimento tambem escala as entradas "
+                         "dos neuronios LC (object/target)")
     ap.add_argument("--retina-axis", choices=["pca", "elevation"], default="pca")
     ap.add_argument("--curve-every", type=int, default=0)
     ap.add_argument("--curve-trials", type=int, default=100)
@@ -242,7 +260,8 @@ def main_cli():
         noise_std=args.noise, reward_mode=args.reward, elig_mode=args.elig_mode,
         elig_decay=args.elig_decay, w_cap_factor=args.w_cap_factor,
         dev_serves=args.dev_serves, homeostasis_rate=args.homeostasis_rate,
-        target_rate=args.target_rate, curve_every=args.curve_every,
+        target_rate=args.target_rate, homeostasis_scope=args.homeostasis_scope,
+        curve_every=args.curve_every,
         curve_trials=args.curve_trials, retina_axis=args.retina_axis,
     )
     print(f"{row['policy']}/{row['condition']} treino={row['train_seed']} "

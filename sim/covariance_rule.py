@@ -138,3 +138,37 @@ class CovarianceRPELearner:
     def reset_traces(self):
         """Limpa a elegibilidade entre tentativas (as medias continuam)."""
         self.elig.fill(0.0)
+
+
+class HomeostaticScaler:
+    """Escalonamento sinaptico homeostatico de TODAS as entradas de um
+    conjunto de neuronios (nao so das sinapses plasticas).
+
+    Usado na fase de desenvolvimento (sem recompensa). No MaleCNS real, os
+    neuronios LC (LC4/LPLC2 e LC10a) recebem centenas de sinapses e ficam
+    saturados; em saturacao a altura da bola quase nao e decodificavel deles
+    (~60%, contra ~95% nas camadas anteriores). Escalar as entradas para uma
+    taxa alvo recupera a informacao (~90% na camada object). Como a
+    homeostase do CovarianceRPELearner, nao usa recompensa nem direcao.
+    """
+
+    def __init__(self, net, post_idx, *, rate: float = 0.01,
+                 target_rate: float = 0.3, mean_decay: float = 0.98):
+        self.net = net
+        self.rate = float(rate)
+        self.target_rate = float(target_rate)
+        self.mean_decay = float(mean_decay)
+        W = net.W
+        rows = np.repeat(np.arange(net.n), np.diff(W.indptr))
+        self.entries = np.flatnonzero(np.isin(rows, np.asarray(post_idx)))
+        self.entry_post = rows[self.entries]
+        self.post_mean = np.zeros(net.n, dtype=np.float64)
+
+    def update(self, frame_counts: np.ndarray) -> None:
+        a = self.mean_decay
+        self.post_mean *= a
+        self.post_mean += (1 - a) * frame_counts
+        if self.rate == 0.0 or not len(self.entries):
+            return
+        err = self.target_rate - self.post_mean[self.entry_post]
+        self.net.W.data[self.entries] *= np.clip(1.0 + self.rate * err, 0.5, 1.5)

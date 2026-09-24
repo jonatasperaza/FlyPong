@@ -14,7 +14,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from sim.covariance_rule import CovarianceRPELearner
+from sim.covariance_rule import CovarianceRPELearner, HomeostaticScaler
 from game.sensory_map import egocentric_ball_y
 
 
@@ -115,6 +115,18 @@ class HomeostasisTests(unittest.TestCase):
         w = weights(net)
         self.assertLess(w[0], 2.0)     # post 2 acima do alvo
         self.assertGreater(w[2], 2.0)  # post 3 abaixo do alvo
+
+
+class HomeostaticScalerTests(unittest.TestCase):
+    def test_scales_all_inputs_of_selected_neurons_only(self):
+        net = make_net()
+        scaler = HomeostaticScaler(net, [2], rate=0.1, target_rate=0.3, mean_decay=0.5)
+        for _ in range(30):
+            scaler.update(np.array([0.0, 0.0, 2.0, 2.0]))
+        w = weights(net)  # ordem: (0->2), (1->2), (0->3), (1->3)
+        self.assertLess(w[0], 2.0)
+        self.assertLess(w[1], 2.0)
+        np.testing.assert_allclose(w[2:], [2.0, 2.0])  # post 3 fora do conjunto
 
 
 class EgocentricRetinaTests(unittest.TestCase):
