@@ -36,6 +36,8 @@ def main():
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--data-dir", default=str(HERE / "connectome_data"))
     ap.add_argument("--token", default=os.environ.get("NEUPRINT_TOKEN"))
+    ap.add_argument("--dataset", default=fc.DATASET,
+                    help=f"dataset do neuPrint (padrao: {fc.DATASET})")
     args = ap.parse_args()
     if not args.token:
         print("ERRO: defina NEUPRINT_TOKEN ou passe --token.", file=sys.stderr)
@@ -46,8 +48,9 @@ def main():
     photo = ndf[ndf["role"] == "photoreceptor"]
     print(f"[add_retina_coords] {len(photo)} fotorreceptores em {path}")
 
-    from neuprint import Client
-    client = Client(fc.NEUPRINT_SERVER, dataset=fc.DATASET, token=args.token)
+    client = fc.connect(args.token, args.dataset)
+    if client is None:
+        return 2
     centroid = fc.fetch_photoreceptor_centroids(photo, client)
     with_coords = fc.add_centroid_columns(photo, centroid)
     n_valid = int(with_coords["retina_y"].notna().sum())

@@ -81,6 +81,8 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--token", default=os.environ.get("NEUPRINT_TOKEN"))
+    ap.add_argument("--dataset", default=fc.DATASET,
+                    help=f"dataset do neuPrint (padrao: {fc.DATASET})")
     ap.add_argument("--min-weight", type=int, default=5,
                     help="peso minimo por par pre->pos para contar a conexao")
     ap.add_argument("--top", type=int, default=25)
@@ -89,8 +91,9 @@ def main():
         print("ERRO: defina NEUPRINT_TOKEN ou passe --token.", file=sys.stderr)
         return 2
 
-    from neuprint import Client
-    client = Client(fc.NEUPRINT_SERVER, dataset=fc.DATASET, token=args.token)
+    client = fc.connect(args.token, args.dataset)
+    if client is None:
+        return 2
     current_lc = f"{fc.ROLE_TYPE_REGEX['object']}|{fc.ROLE_TYPE_REGEX['target']}"
     pd.set_option("display.width", 200)
     pd.set_option("display.max_colwidth", 80)
@@ -101,7 +104,8 @@ def main():
         conn = query(client, regex, args.min_weight)
         table = summarize(conn, args.top)
         print(table.to_string(index=False))
-        path = out_dir / f"dn_candidatos_{label}.csv"
+        tag = re.sub(r"[^A-Za-z0-9.]+", "-", args.dataset)
+        path = out_dir / f"dn_candidatos_{label}_{tag}.csv"
         table.to_csv(path, index=False)
         print(f"[find_dn_candidates] salvo: {path}")
     return 0

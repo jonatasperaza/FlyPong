@@ -74,6 +74,24 @@ NEUPRINT_SERVER = "https://neuprint.janelia.org"
 DATASET = "male-cns:v1.0"
 
 
+def connect(token: str, dataset: str = DATASET):
+    """Cliente do neuPrint, ou None (com mensagem) se o dataset nao existir.
+
+    O servidor ja mudou a lista de datasets disponiveis (male-cns:v1.0 sumiu e
+    male-cns:v0.9 continuou); o erro da biblioteca mostra a lista, mas nao
+    explica o risco de trocar de versao.
+    """
+    from neuprint import Client
+    try:
+        return Client(NEUPRINT_SERVER, dataset=dataset, token=token)
+    except RuntimeError as e:
+        print(f"ERRO: {e}", file=sys.stderr)
+        print("Use --dataset com um dos datasets listados. Atencao: bodyIds podem "
+              "mudar entre versoes; nao misture dados de versoes diferentes no mesmo "
+              "connectome_data/.", file=sys.stderr)
+        return None
+
+
 def _pca_project(coords_by_body: dict, body_ids: list) -> tuple[np.ndarray, int]:
     """Projeta coordenadas 3D (dict bodyId -> [x,y,z]) no eixo de maior
     variancia (1o componente principal via SVD), na ordem de `body_ids`.
