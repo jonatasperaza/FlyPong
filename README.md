@@ -1497,6 +1497,91 @@ Reproduzir:
 scripts/run_achado19.py --data-dir /tmp/syn --out /tmp/achado19.jsonl`
 (~15 min com 4 processos).
 
+### Achado 20 (28 descendentes: critério principal cumprido; efeito do canal de saída não comprovado)
+
+**Resumo:** com 28 descendentes (14 por lado), a rede treinada supera os dois
+controles na condição invertida em **5/6 seeds**. É o **primeiro resultado
+no conectoma real que passa no critério fixado antes de rodar**. Mas a
+comparação direta com 4 descendentes, na mesma versão dos dados, **não
+mostra diferença comprovada** na invertida (+3,3 pontos, com ICs
+sobrepostos). Na condição normal, 28 descendentes foram **piores** do que 4.
+Protocolo e critérios foram registrados antes da execução em
+`docs/achado-20-protocolo.md`.
+
+**Montagem.**
+- O servidor do neuPrint deixou de oferecer o `male-cns:v1.0`, então tudo
+  aqui usa o `male-cns:v0.9`. Neste subgrafo as versões são quase idênticas:
+  44.989 neurônios, 1.157.841 contra 1.157.952 arestas.
+- Os descendentes novos saíram de `scripts/find_dn_candidates.py`
+  (`docs/dn_candidatos_male-cns-v0.9.txt`). O critério foi fixado antes de
+  qualquer teste: tipos com par bilateral e ≥ 1000 de peso vindo dos LC já
+  presentes no subgrafo. Deu 12 tipos novos: DNp04, DNp103, DNp02, DNg40,
+  DNp11, DNp06, DNp03, DNpe056, DNp05, DNp71, DNp35 e DNpe025. Com GF e
+  DNa10 são 28 neurônios, todos com lado L/R (verificado).
+- A maioria desses descendentes está ligada a detecção de aproximação e fuga
+  (LC4/LPLC2), não à direção de voo.
+- A configuração é a do Achado 19, seção 6, sem nenhum ajuste novo: retina
+  por elevação, homeostase nos LC e 1.500 saques de treino.
+
+**Resultados** (6 seeds de teste × 300 saques; IC95 de Wilson sobre os
+1.800 saques somados):
+
+| condição | descendentes | treinada | controle homeostase | controle inato | seeds com IC acima dos dois controles |
+|---|---:|---:|---:|---:|---:|
+| invertida | 28 | **39,9%** [37,7; 42,2] | 25,6% | 26,2% | **5/6** |
+| invertida | 4 | 36,6% [34,4; 38,8] | 26,7% | 25,7% | 3/6 |
+| normal | 28 | 26,7% [24,7; 28,8] | 23,9% | 23,4% | 0/6 |
+| normal | 4 | 30,7% [28,6; 32,8] | 25,2% | 26,6% | 0/6 |
+
+Curva média da treinada na invertida:
+
+| saques de treino | 0 | 500 | 1000 | 1500 |
+|---|---:|---:|---:|---:|
+| 28 descendentes | 24,7% | 37,5% | 38,7% | 41,3% |
+| 4 descendentes | 24,0% | 34,5% | 35,5% | 34,3% |
+
+**Critérios pré-registrados:**
+
+1. **Principal — cumprido.** Com 28 descendentes, na invertida, a treinada
+   ficou acima dos dois controles, sem sobreposição de IC, em 5/6 seeds.
+   Na seed que ficou de fora (1005), a treinada teve 33,7% e ficou à frente,
+   mas com os ICs se tocando.
+2. **Efeito do canal de saída — não cumprido.** Na invertida, 28
+   descendentes somam 39,9% [37,7; 42,2] e 4 somam 36,6% [34,4; 38,8]: os
+   ICs se sobrepõem. A diferença foi positiva em 5/6 seeds (média +3,3
+   pontos), mas isso é exploratório.
+3. **Secundário (normal) — não cumprido.** Com 28 descendentes a treinada
+   fica 2,8 pontos acima do controle, e com 4, 5,5 pontos. **Na comparação
+   direta, 28 foram piores que 4 em 6/6 seeds** (média −4,0 pontos).
+
+**Leitura honesta:**
+- **Há aprendizado real e reproduzível no conectoma, mas pequeno.** Na
+  invertida, a treinada supera os controles em todas as 24 comparações
+  (2 configurações × 6 seeds × 2 controles). Mesmo assim, 40% está longe
+  dos 100% do oráculo.
+- **Mais descendentes não resolveram o gargalo.** O ganho na invertida é
+  pequeno e não comprovado, e na normal houve piora. Uma explicação
+  compatível: os 24 descendentes novos recebem sobretudo LC4/LPLC2, cuja
+  sintonia de elevação favorece um dos lados (Achado 19, seção 6). Mais
+  canais com a mesma informação reforçam o lado que já tinha material e
+  diluem o que não tinha. É uma hipótese, não foi testada.
+- **O critério principal passou com 28 e não passou com 4 (3/6), mas os dois
+  estão perto do limiar.** A diferença entre eles não é significativa, então
+  a conclusão robusta é "aprendizado modesto nas duas configurações", não
+  "28 descendentes causam aprendizado".
+- **Próximo passo mais promissor, pelos diagnósticos:** o que limita é a
+  informação que chega aos descendentes, não o número deles. Os candidatos
+  são dois. O primeiro é incluir os LC que alimentam o DNa10 com sintonia
+  variada (LC10d e LC10c, segundo `find_dn_candidates`). O segundo é revisar
+  o modelo neural (ganhos por tipo celular), já que a camada LC10a continua
+  pouco informativa (~65%) mesmo com homeostase.
+
+Resultados por seed:
+- `docs/achado-19-resultados-real-male-cns-v0.9-dn-achado20-elevation-visual-1500serves.jsonl`
+  (28 descendentes);
+- `docs/achado-19-resultados-real-male-cns-v0.9-elevation-visual-1500serves.jsonl`
+  (4 descendentes).
+
 ## Limitações conhecidas
 
 - (Histórico, corrigido no Achado 9) O pool `descending` original tinha só
