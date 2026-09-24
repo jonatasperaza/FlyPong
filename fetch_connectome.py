@@ -70,6 +70,18 @@ ROLE_TYPE_REGEX = {
     "dopaminergic": r"PAM.*|PPL1.*",
 }
 
+# Conjuntos de neuronios descendentes (role "descending"). "original" e o
+# usado ate o Achado 19. "achado20" acrescenta os tipos com par bilateral
+# (L e R) que recebem >= 1000 de peso sinaptico dos LC ja presentes no
+# subgrafo (LC4, LPLC2, LC10a), segundo scripts/find_dn_candidates.py no
+# male-cns:v0.9 (docs/dn_candidatos_lc_do_subgrafo_male-cns-v0.9.csv).
+# Criterio fixado antes de qualquer teste com esses neuronios.
+DN_SETS = {
+    "original": ROLE_TYPE_REGEX["descending"],
+    "achado20": ROLE_TYPE_REGEX["descending"]
+    + "|DNp04|DNp103|DNp02|DNg40|DNp11|DNp06|DNp03|DNpe056|DNp05|DNp71|DNp35|DNpe025",
+}
+
 NEUPRINT_SERVER = "https://neuprint.janelia.org"
 DATASET = "male-cns:v1.0"
 
@@ -153,13 +165,17 @@ def compute_retina_positions_from_synapses(ndf: pd.DataFrame, client) -> tuple[n
     return positions, n_valid, centroid
 
 
-def fetch_real(token: str) -> tuple[pd.DataFrame, pd.DataFrame]:
-    from neuprint import Client, NeuronCriteria as NC, fetch_adjacencies, fetch_neurons
+def fetch_real(token: str, dataset: str = DATASET,
+               role_regex: dict | None = None) -> tuple[pd.DataFrame, pd.DataFrame]:
+    from neuprint import NeuronCriteria as NC, fetch_adjacencies, fetch_neurons
 
-    client = Client(NEUPRINT_SERVER, dataset=DATASET, token=token)
+    client = connect(token, dataset)
+    if client is None:
+        sys.exit(2)
+    role_regex = ROLE_TYPE_REGEX if role_regex is None else role_regex
 
     role_frames = []
-    for role, regex in ROLE_TYPE_REGEX.items():
+    for role, regex in role_regex.items():
         crit = NC(type=regex, regex=True, client=client)
         ndf, _ = fetch_neurons(crit, client=client)
         if role == "photoreceptor":
@@ -311,7 +327,12 @@ def main():
                      help="Gera grafo SINTETICO local em vez de baixar dados reais.")
     ap.add_argument("--seed", type=int, default=0, help="Seed do gerador sintetico.")
     ap.add_argument("--out-dir", default=OUT_DIR)
+    ap.add_argument("--dataset", default=DATASET,
+                     help=f"dataset do neuPrint (padrao: {DATASET})")
+    ap.add_argument("--dn-set", choices=sorted(DN_SETS), default="original",
+                     help="conjunto de neuronios descendentes (ver DN_SETS)")
     args = ap.parse_args()
+    role_regex = {**ROLE_TYPE_REGEX, "descending": DN_SETS[args.dn_set]}
 
     os.makedirs(args.out_dir, exist_ok=True)
 
@@ -324,8 +345,9 @@ def main():
             print("ERRO: nenhum token fornecido. Use --token, defina NEUPRINT_TOKEN, "
                   "ou rode com --synthetic para desenvolvimento offline.", file=sys.stderr)
             sys.exit(1)
-        print(f"[fetch_connectome] Conectando a {NEUPRINT_SERVER} dataset={DATASET} ...")
-        neurons_df, conn_df = fetch_real(args.token)
+        print(f"[fetch_connectome] Conectando a {NEUPRINT_SERVER} dataset={args.dataset} "
+              f"dn_set={args.dn_set} ...")
+        neurons_df, conn_df = fetch_real(args.token, args.dataset, role_regex)
         source_label = "real"
 
     neurons_path = os.path.join(args.out_dir, "neurons.parquet")
@@ -338,13 +360,14 @@ def main():
     counts = neurons_df["role"].value_counts().to_dict()
     meta = {
         "source": source_label,
-        "dataset": DATASET if source_label == "real" else "SYNTHETIC (nao e dado real)",
-        "citation": "Berg et al., 'A connectome of the adult male Drosophila central nervous system', Cell, 2026 (MaleCNS v1.0).",
+        "dataset": args.dataset if source_label == "real" else "SYNTHETIC (nao e dado real)",
+        "dn_set": args.dn_set,
+        "citation": "Berg et al., 'A connectome of the adult male Drosophila central nervous system', Cell, 2026 (MaleCNS).",
         "fetched_at": datetime.now(timezone.utc).isoformat(),
         "n_neurons": int(len(neurons_df)),
         "n_edges": int(len(conn_df)),
         "counts_by_role": counts,
-        "role_type_regex": ROLE_TYPE_REGEX,
+        "role_type_regex": role_regex,
     }
     with open(meta_path, "w") as f:
         json.dump(meta, f, indent=2)

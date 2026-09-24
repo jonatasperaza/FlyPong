@@ -215,6 +215,13 @@ class ConnectomeNetwork:
         is_left = np.array([bool(re.search(r"(_L$|\(L\))", inst)) for inst in instances])
         if int((is_right | is_left).sum()) == n and n >= 2:
             return self.descending_idx[is_right], self.descending_idx[is_left]
+        if n > 4:
+            import warnings
+            warnings.warn(
+                f"{n - int((is_right | is_left).sum())} descendente(s) sem sufixo _L/_R; "
+                "readout dividido pela metade dos indices (arbitrario)",
+                stacklevel=2,
+            )
         half = n // 2
         return self.descending_idx[:half], self.descending_idx[half:]
 

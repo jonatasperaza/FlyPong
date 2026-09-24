@@ -1,0 +1,60 @@
+Saida de `python scripts/find_dn_candidates.py --dataset male-cns:v0.9`
+(rodado pelo autor em 2026-09-24; male-cns:v1.0 nao estava mais disponivel
+no servidor). Base da escolha do conjunto "achado20" em fetch_connectome.DN_SETS:
+tipos com par bilateral (L e R) e peso total >= 1000 vindo dos LC do subgrafo.
+
+=== descendentes que recebem de lc_do_subgrafo (LC4|LPLC2|LC10a.*) ===
+dn_type  total_weight  n_cells sides                 top_lc_inputs
+  DNp04         14978        2    LR         LC4:11597, LPLC2:3381
+  DNp01         11198        2    LR          LC4:6362, LPLC2:4836
+ DNp103          5231        2    LR           LPLC2:5065, LC4:166
+  DNp02          4205        2    LR                      LC4:4205
+  DNg40          3834        2    LR           LPLC2:2948, LC4:886
+  DNp11          3749        2    LR LC4:3632, LC10a:106, LPLC2:11
+  DNp06          2679        2    LR          LPLC2:1581, LC4:1098
+  DNp03          2492        2    LR                      LC4:2492
+DNpe056          1536        2    LR                    LPLC2:1536
+  DNp05          1255        2    LR                      LC4:1255
+  DNp71          1033        2    LR                    LPLC2:1033
+  DNp35          1006        2    LR            LPLC2:700, LC4:306
+DNpe025          1004        2    LR            LPLC2:886, LC4:118
+  DNa10           718        2    LR                     LC10a:718
+DNpe042           306        2    LR                     LPLC2:306
+DNpe045           164        2    LR                     LPLC2:164
+  DNa16           138        1     R                     LC10a:138
+  DNp09           111        2    LR            LPLC2:68, LC10a:43
+DNpe021           104        2    LR              LC4:94, LPLC2:10
+  DNp63            93        2    LR                      LC10a:93
+DNpe052            54        2    LR                      LPLC2:54
+  DNp55            45        2    LR                      LPLC2:45
+  DNp70            28        2    LR                      LPLC2:28
+  DNb05            18        2    LR                        LC4:18
+  DNd05            16        1     L                      LC10a:16
+
+=== descendentes que recebem de todos_lc (LC.*|LPLC.*) ===
+dn_type  total_weight  n_cells sides                                 top_lc_inputs
+  DNp04         14983        2    LR                LC4:11597, LPLC2:3381, LPLC1:5
+  DNp01         11198        2    LR                          LC4:6362, LPLC2:4836
+  DNp03         10858        2    LR    LPLC4:3740, LPLC1:3598, LC4:2492, LC22:557
+  DNp35          9655        2    LR  LPLC1:3191, LC11:1997, LC21:1273, LC31a:1021
+ DNp103          7775        2    LR     LPLC2:5065, LPLC1:886, LC6:752, LC31a:563
+  DNp06          6431        2    LR   LPLC1:2766, LPLC2:1581, LC4:1098, LC31a:952
+  DNp11          6064        2    LR       LC4:3632, LPLC1:985, LC9:929, LPLC4:296
+  DNb05          4771        2    LR          LPLC4:4699, LC23:43, LC4:18, LC35b:6
+  DNa10          4305        2    LR LC10d:1463, LC10a:718, LC10c-2:670, LPLC4:606
+  DNp02          4210        2    LR                              LC4:4205, LC23:5
+  DNg40          3991        2    LR                LPLC2:2948, LC4:886, LC31a:157
+  DNp26          3849        2    LR     LPLC4:1667, LC22:1420, LC23:734, LC35b:18
+  DNp05          3370        2    LR      LPLC4:1371, LC4:1255, LC22:500, LC23:239
+DNbe001          3201        2    LR     LPLC4:1307, LC23:1224, LC22:532, LC35a:80
+  DNp09          3166        2    LR   LC9:1904, LC31a:763, LC31b:180, LC10c-1:108
+  DNp31          3112        2    LR      LPLC4:1988, LC36:643, LC23:226, LC35b:70
+  DNp57          2513        2    LR        LPLC4:2346, LC46b:64, LC36:47, LC23:36
+  DNp07          2258        2    LR                          LPLC4:2244, LC39a:14
+DNpe056          1911        2    LR     LPLC2:1536, LC31b:234, LPLC4:113, LC22:28
+  DNp71          1871        2    LR        LPLC2:1033, LC9:407, LC31a:373, LC6:41
+  DNg82          1402        4  LLRR       LPLC4:1075, LC23:270, LC22:28, LC35b:18
+DNbe007          1103        2    LR       LPLC4:1045, LC20b:21, LC37:21, LC39a:11
+DNpe025          1004        2    LR                            LPLC2:886, LC4:118
+DNpe055           879        2    LR                              LC36:873, LC19:6
+DNge054           866        2    LR         LPLC4:751, LC23:73, LC22:23, LPLC2:12
