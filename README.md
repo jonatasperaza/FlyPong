@@ -1198,6 +1198,146 @@ a mesma de sempre neste projeto — reproduzir um resultado conhecido antes de
 confiar num código novo, não revisar o diff visualmente e assumir que está
 certo.
 
+### Achado 19 (aprendizado real: a rede reaprende a jogar com o readout invertido)
+
+**Resumo:** pela primeira vez neste projeto, uma regra de plasticidade supera
+com clareza um controle sem aprendizado, e sob o teste mais duro disponível.
+Com os grupos "sobe"/"desce" do readout trocados, o circuito inato joga para
+o lado errado (6,7% de acerto). Depois de 3.000 saques de treino com
+recompensa, a mesma rede acerta **57,2%** (6 seeds de teste × 300 saques),
+contra 13,1% do controle com a mesma homeostase e sem recompensa. O critério
+definido antes de rodar ("IC95 da treinada acima do controle, sem
+sobreposição, em ≥5 de 6 seeds") foi cumprido em **6/6 seeds, nas duas
+condições**. **Ressalva principal: tudo foi medido no grafo sintético**
+(`fetch_connectome.py --synthetic`). O download dos dados reais foi bloqueado
+pela rede do ambiente (403 em `neuprint.janelia.org`), então o resultado
+ainda precisa ser reproduzido no MaleCNS v1.0.
+
+#### 1. Nova métrica: saques independentes (`serve_eval.py`)
+
+A taxa de rebatida numa partida contínua permite órbitas travadas (seed 2
+nos Achados 13, 17 e 18). No protocolo novo:
+- cada tentativa zera o estado da rede;
+- a bola sai do centro em direção ao paddle do conectoma, com ângulo
+  sorteado por um RNG só da avaliação, e o paddle começa numa altura
+  sorteada;
+- a tentativa acaba no acerto ou no erro;
+- os pesos ficam congelados (o código verifica), sem reforço;
+- o resultado sai com IC de Wilson 95%.
+
+As seeds foram separadas antes de qualquer rodada:
+- treino: `TRAIN_SEEDS` = 42, 1–5;
+- teste: `EVAL_SEEDS` = 1001–1006;
+- escolha de hiperparâmetros: `VALIDATION_SEEDS` = 2001–2003.
+
+Referências no grafo sintético: paddle parado 24,7%, oráculo 100%.
+
+#### 2. Por que nada aprendia antes: três problemas que nenhuma regra resolveria
+
+1. **A mosca não via o paddle.** `ball_to_photoreceptor_stimulus` só
+   codifica a bola. Com o paddle em altura sorteada, nenhuma política cega ao
+   paddle passa de ~60/260 ≈ 23%. A rede inata ficava exatamente nesse nível
+   (24,2%, igual ao paddle parado). Nas partidas contínuas isso ficava
+   escondido pela correlação entre trajetória da bola e posição do paddle.
+   **Correção:** modo opcional `--sensory-mode egocentric`, com a retina
+   centrada no paddle (o olho da mosca se move com o corpo). O modo padrão
+   continua o original, então os Achados anteriores continuam reproduzíveis.
+   Com a retina egocêntrica, a rede inata acerta ~50% (normal) e 5–11%
+   (invertida).
+2. **Os descendentes estavam saturados.**
+   - Eles recebem de 5 a 23 unidades de corrente com limiar 1 e disparam na
+     taxa máxima permitida pelo período refratário.
+   - A camada object (LC4/LPLC2, três saltos da retina) fica quase toda ativa
+     para qualquer posição da bola.
+   - Em saturação, o ruído de exploração não muda os spikes, então o
+     gradiente da recompensa é zero. É também por isso que o delta ±3 dos
+     Achados 14–18 não mudava nada.
+   - Uma configuração montada à mão, com só 10 das 387 sinapses plásticas
+     (o resto zerado), acerta ~60% na condição invertida: a solução existe,
+     mas é esparsa. **Correção:** uma fase de "desenvolvimento" sem
+     recompensa, só com escalonamento sináptico homeostático (Turrigiano et
+     al. 1998), que traz cada descendente para ~0,3 spike/frame. A homeostase
+     não conhece a recompensa nem a direção da bola. Ela fica desligada
+     durante o treino, porque, ligada, anulava a depressão das sinapses do
+     lado errado (medido).
+3. **A regra original não separa "sobe" de "desce" e não tem erro de
+   predição.** Esse diagnóstico está no briefing da sessão anterior. A regra
+   nova (`sim/covariance_rule.py`) usa `dw = η · (R − ⟨R⟩) · e`:
+   - O erro de predição `R − ⟨R⟩` evita o decaimento sistemático: com
+     recompensa constante e prevista, a mudança é zero (há teste para isso).
+   - A elegibilidade `e = pre × ξ` usa o próprio ruído de exploração ξ
+     injetado em cada descendente (perturbação de nó, Fiete & Seung 2006).
+     A forma do briefing, `pre × (post − ⟨post⟩)`, também aprende (~50% na
+     invertida, nas seeds de validação). Só que o desvio pós-sináptico, com
+     média lenta, carrega a variação causada pelo estímulo, e essa variação
+     se correlaciona com a recompensa sem relação causal com a ação. A
+     versão com ξ é imparcial por construção.
+   - A dopamina é um escalar global na regra: nenhuma corrente é injetada
+     nos PAM/PPL1, então o reforço não interfere na ação.
+   - Os pesos ficam entre 0 e 4× o peso médio inicial.
+   - A recompensa vem só do ambiente: +1 se o paddle ficou mais perto da
+     altura da bola naquele frame, −1 se ficou mais longe. Ela nunca diz
+     qual grupo motor deveria disparar.
+
+#### 3. Resultado (6 seeds de teste × 300 saques, ruído intrínseco σ=6 em todos)
+
+| condição | treinada | controle homeostase | controle inato |
+|---|---:|---:|---:|
+| invertida | **57,2%** (1030/1800) | 13,1% (236/1800) | 6,7% (120/1800) |
+| normal | **99,0%** (1782/1800) | 43,4% (781/1800) | 56,4% (1015/1800) |
+
+Por seed, na condição invertida, a treinada ficou entre 52,0% e 60,7%. O
+limite inferior do IC95 dela (≥0,464) ficou sempre acima do limite superior
+dos dois controles (≤0,202). Na condição normal, a treinada ficou entre
+97,7% e 100%. Os valores por seed estão em `docs/achado-19-resultados.jsonl`.
+
+Curva média de aprendizado (100 saques por ponto, pesos congelados):
+
+| saques de treino | 0 | 500 | 1000 | 1500 | 2000 | 2500 | 3000 |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| invertida | 10,3% | 33,0% | 41,5% | 48,2% | 52,8% | 54,7% | 57,3% |
+| normal | 41,2% | 91,8% | 93,7% | 97,8% | 98,2% | 99,5% | 98,3% |
+
+A curva invertida sobe de forma monotônica e se aproxima do teto de ~60% da
+configuração montada à mão. O mecanismo foi conferido nos pesos: o treino
+reforça "target de cima → grupo que agora significa subir" (0,39→2,25) e
+"target de baixo → grupo que agora significa descer" (0,19→0,69). É a
+religação que a inversão exige.
+
+#### 4. O que não funcionou e limites honestos
+
+- **Recompensa esparsa sozinha (só acerto/erro no fim do saque) não
+  aprendeu** na condição invertida: 5–13% com traço de elegibilidade
+  λ=0,9–1,0, η=0,02–0,05, contra ~10% do controle. Com ~10% de acertos
+  iniciais, quase todo saque dá o mesmo "erro", e 3.000 episódios não bastam.
+  A recompensa densa por frame continua necessária.
+- **Os hiperparâmetros foram escolhidos depois de ver resultados**, mas só
+  nas seeds de validação (2001/2002): η=0,001, σ=6, 300 saques de
+  desenvolvimento, 3.000 de treino. Também foram testadas, sem sucesso,
+  homeostase ligada durante o treino, ruído sem homeostase e η maiores. Nas
+  seeds de teste, o protocolo rodou uma única vez, com tudo congelado
+  (`scripts/run_achado19.py`).
+- **A retina egocêntrica é uma mudança de modelo**, não só de avaliação: sem
+  ela, a tarefa com paddle em altura aleatória é impossível para qualquer
+  regra. Ela é a hipótese mais simples, mas não foi validada contra a
+  anatomia real.
+- **O ruído intrínseco (σ=6) fica ligado também na avaliação**, igual para
+  todas as políticas, porque a homeostase calibrou as taxas com ele. Por
+  isso o controle inato normal marca 56,4% aqui, contra ~50% sem ruído.
+- **A solução ótima nesse grafo depende de pouquíssimas sinapses cruzadas**
+  (a conectividade sintética é topográfica). O teto da condição invertida
+  (~60%) é estrutural, não da regra. No grafo real, o teto pode ser outro,
+  para cima ou para baixo.
+- **Próximo passo obrigatório:** rodar `python scripts/run_achado19.py` com
+  os dados reais (`NEUPRINT_TOKEN` e acesso de rede a
+  `neuprint.janelia.org`). O grafo real tem ~45 mil neurônios, contra 750 do
+  sintético, então cada execução deve ser dezenas de vezes mais lenta.
+
+Reproduzir:
+`python fetch_connectome.py --synthetic --out-dir /tmp/syn && python
+scripts/run_achado19.py --data-dir /tmp/syn --out /tmp/achado19.jsonl`
+(~15 min com 4 processos).
+
 ## Limitações conhecidas
 
 - (Histórico, corrigido no Achado 9) O pool `descending` original tinha só
