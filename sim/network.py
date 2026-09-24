@@ -38,7 +38,8 @@ class ConnectomeNetwork:
       record_history: disable weight-history allocation during screening.
     """
 
-    def __init__(self, data_dir: str, *, prune_causal: bool = False, record_history: bool = True):
+    def __init__(self, data_dir: str, *, prune_causal: bool = False, record_history: bool = True,
+                 retina_axis: str = "pca"):
         neurons_path = os.path.join(data_dir, "neurons.parquet")
         edges_path = os.path.join(data_dir, "edges.parquet")
         neurons_df = pd.read_parquet(neurons_path)
@@ -68,6 +69,9 @@ class ConnectomeNetwork:
         desc_types = self.neurons_df["type"].astype(str).to_numpy()
         is_dna10 = np.array([t.startswith("DNa10") for t in desc_types[self.descending_idx]])
         self.dna10_idx = self.descending_idx[is_dna10]
+        if retina_axis not in {"pca", "elevation"}:
+            raise ValueError(f"unknown retina_axis: {retina_axis}")
+        self.retina_axis = retina_axis
         self.photoreceptor_positions = self._compute_photoreceptor_positions()
         self.motor_up_idx, self.motor_down_idx = self._compute_motor_groups()
 
@@ -218,6 +222,8 @@ class ConnectomeNetwork:
         n = len(self.photoreceptor_idx)
         if n == 0:
             return np.empty(0, dtype=np.float64)
+        if self.retina_axis == "elevation":
+            return self._elevation_positions()
         if "retina_pos" in self.neurons_df.columns:
             raw = self.neurons_df["retina_pos"].to_numpy(dtype=float)[self.photoreceptor_idx]
         else:
@@ -229,6 +235,40 @@ class ConnectomeNetwork:
         raw = np.where(valid, raw, median_val)
         lo, hi = raw.min(), raw.max()
         return (raw - lo) / max(hi - lo, 1e-9)
+
+    def _elevation_positions(self):
+        """Posicao na retina 1D = elevacao, normalizada dentro de cada olho.
+
+        No MaleCNS real, o 1o componente principal dos centroides de sinapse
+        (`retina_pos`, modo "pca") separa o olho esquerdo do direito: metade
+        dos fotorreceptores cai em [0, 0.11], a outra em [0.79, 1], e a faixa
+        do meio fica sem nenhum. Aqui cada fotorreceptor recebe o posto (rank)
+        do seu centroide no eixo y do neuPrint (`retina_y`, dorso-ventral no
+        sistema de coordenadas do FlyEM) dentro do proprio olho (sufixo _L/_R
+        do `instance`), entao os dois olhos veem a bola em qualquer altura.
+        Exige a coluna `retina_y` (fetch_connectome.py atual ou
+        scripts/add_retina_coords.py).
+        """
+        if "retina_y" not in self.neurons_df.columns:
+            raise ValueError(
+                "retina_axis='elevation' exige a coluna retina_y em neurons.parquet "
+                "(rode scripts/add_retina_coords.py ou fetch_connectome.py de novo)"
+            )
+        idx = self.photoreceptor_idx
+        y = self.neurons_df["retina_y"].to_numpy(dtype=float)[idx]
+        inst = self.neurons_df["instance"].astype(str).to_numpy()[idx]
+        eye = np.array(
+            ["R" if re.search(r"(_R$|\(R\))", i) else "L" if re.search(r"(_L$|\(L\))", i) else "?"
+             for i in inst]
+        )
+        pos = np.full(len(idx), 0.5)
+        for e in np.unique(eye):
+            m = (eye == e) & ~np.isnan(y)
+            k = int(m.sum())
+            if k >= 2:
+                ranks = np.argsort(np.argsort(y[m]))
+                pos[m] = ranks / (k - 1)
+        return pos
 
     def _find_data_indices(self, pre_arr, post_arr):
         idx = np.empty(len(pre_arr), dtype=np.int64)

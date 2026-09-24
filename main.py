@@ -50,6 +50,7 @@ class FlyPongRunner:
         proximity_reward_current=PROXIMITY_REWARD_CURRENT,
         proximity_progress_deadzone=PROXIMITY_PROGRESS_DEADZONE,
         sensory_mode="allocentric",
+        retina_axis="pca",
     ):
         if sensory_mode not in {"allocentric", "egocentric"}:
             raise ValueError(f"unknown sensory mode: {sensory_mode}")
@@ -66,6 +67,7 @@ class FlyPongRunner:
             data_dir,
             prune_causal=prune_causal,
             record_history=self.record_history,
+            retina_axis=retina_axis,
         )
         self.game = PongGame(seed=game_seed)
         self.game_seed = game_seed

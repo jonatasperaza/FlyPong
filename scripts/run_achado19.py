@@ -13,8 +13,9 @@ Protocolo definido antes de rodar (ver README, Achado 19):
 Anexa uma linha JSON por (condicao, politica, seed) em --out e recusa
 sobrescrever resultados ja existentes. Por padrao o arquivo de saida depende
 da origem dos dados (`metadata.json` -> "source"):
-docs/achado-19-resultados-<source>.jsonl. O script recusa misturar
-resultados de origens diferentes no mesmo arquivo.
+docs/achado-19-resultados-<source>[-elevation].jsonl. O script recusa
+misturar no mesmo arquivo resultados de origens ou eixos de retina
+diferentes.
 """
 
 from __future__ import annotations
@@ -37,11 +38,12 @@ CONDITIONS = ("inverted", "normal")
 
 
 def _job(args):
-    data_dir, condition, policy, train_seed, eval_seed, trials, curve_every = args
+    data_dir, condition, policy, train_seed, eval_seed, trials, curve_every, axis = args
     row = st.run_condition(
         data_dir, condition=condition, policy=policy, train_seed=train_seed,
         eval_seed=eval_seed, eval_trials=trials,
         curve_every=curve_every if policy == "trained" else 0, verbose=False,
+        retina_axis=axis,
     )
     row["data_source"] = data_source(data_dir)
     return row
@@ -50,6 +52,11 @@ def _job(args):
 def data_source(data_dir) -> str:
     with open(Path(data_dir) / "metadata.json", encoding="utf-8") as f:
         return json.load(f).get("source", "desconhecido")
+
+
+def origin(row: dict) -> tuple[str, str]:
+    """(origem dos dados, eixo da retina) de uma linha de resultado."""
+    return (str(row.get("data_source")), row.get("config", {}).get("retina_axis", "pca"))
 
 
 def load(path: Path) -> dict:
@@ -94,7 +101,10 @@ def main_cli():
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--data-dir", default=main.DATA_DIR)
     ap.add_argument("--out", default=None,
-                    help="padrao: docs/achado-19-resultados-<source>.jsonl")
+                    help="padrao: docs/achado-19-resultados-<source>[-elevation].jsonl")
+    ap.add_argument("--retina-axis", choices=["pca", "elevation"], default="pca",
+                    help="elevation: posicao na retina = elevacao dentro de cada olho "
+                         "(exige retina_y; ver scripts/add_retina_coords.py)")
     ap.add_argument("--trials", type=int, default=se.DEFAULT_TRIALS)
     ap.add_argument("--curve-every", type=int, default=500)
     ap.add_argument("--workers", type=int, default=4)
@@ -105,17 +115,20 @@ def main_cli():
         print(f"ERRO: dados do conectoma nao encontrados em {args.data_dir}.")
         return 2
     source = data_source(args.data_dir)
-    out = Path(args.out) if args.out else HERE / "docs" / f"achado-19-resultados-{source}.jsonl"
+    suffix = "" if args.retina_axis == "pca" else f"-{args.retina_axis}"
+    out = Path(args.out) if args.out else HERE / "docs" / f"achado-19-resultados-{source}{suffix}.jsonl"
     rows = load(out)
-    other = {r.get("data_source") for r in rows.values()} - {source}
+    other = {origin(r) for r in rows.values()} - {(source, args.retina_axis)}
     if other:
-        print(f"ERRO: {out} tem resultados de outra origem ({', '.join(map(str, other))}); "
-              f"os dados em {args.data_dir} sao '{source}'. Use outro --out.")
+        print(f"ERRO: {out} tem resultados de outra origem/eixo ({sorted(other)}); "
+              f"esta rodada e ({source!r}, {args.retina_axis!r}). Use outro --out.")
         return 2
-    print(f"[achado19] dados: {source} ({args.data_dir}); resultados: {out}", flush=True)
+    print(f"[achado19] dados: {source} ({args.data_dir}), retina: {args.retina_axis}; "
+          f"resultados: {out}", flush=True)
     if not args.summary_only:
         jobs = [
-            (args.data_dir, cond, pol, tr, ev, args.trials, args.curve_every)
+            (args.data_dir, cond, pol, tr, ev, args.trials, args.curve_every,
+             args.retina_axis)
             for cond in CONDITIONS
             for pol in ("trained",) + st.POLICIES[1:]
             for tr, ev in zip(se.TRAIN_SEEDS, se.EVAL_SEEDS)

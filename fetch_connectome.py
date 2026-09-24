@@ -97,7 +97,29 @@ def _pca_project(coords_by_body: dict, body_ids: list) -> tuple[np.ndarray, int]
     return positions, n_valid
 
 
-def compute_retina_positions_from_synapses(ndf: pd.DataFrame, client) -> tuple[np.ndarray, int]:
+def fetch_photoreceptor_centroids(ndf: pd.DataFrame, client) -> pd.DataFrame:
+    """Centroide (x, y, z) das sinapses de saida de cada fotorreceptor, em
+    coordenadas do neuPrint, indexado por bodyId."""
+    from neuprint import fetch_synapses, SynapseCriteria as SC, NeuronCriteria as NC
+
+    body_ids = ndf["bodyId"].tolist()
+    syn_df = fetch_synapses(NC(bodyId=body_ids, client=client), SC(type="pre", client=client), client=client)
+    if len(syn_df) == 0:
+        return pd.DataFrame(columns=["x", "y", "z"])
+    return syn_df.groupby("bodyId")[["x", "y", "z"]].mean()
+
+
+def add_centroid_columns(ndf: pd.DataFrame, centroid: pd.DataFrame) -> pd.DataFrame:
+    """Acrescenta retina_x/retina_y/retina_z (NaN quando nao houver sinapse).
+    Guardar as coordenadas brutas permite escolher o eixo da retina depois
+    (ver ConnectomeNetwork, retina_axis="elevation") sem baixar tudo de novo."""
+    ndf = ndf.copy()
+    for axis in ("x", "y", "z"):
+        ndf[f"retina_{axis}"] = ndf["bodyId"].map(centroid[axis]) if len(centroid) else np.nan
+    return ndf
+
+
+def compute_retina_positions_from_synapses(ndf: pd.DataFrame, client) -> tuple[np.ndarray, int, pd.DataFrame]:
     """Posicao retinotopica via centroide das sinapses de saida (terminais
     pre-sinapticos) de cada fotorreceptor. Preferido sobre somaLocation: na
     pratica, a maioria dos fotorreceptores do MaleCNS v1.0 nao tem soma
@@ -105,15 +127,12 @@ def compute_retina_positions_from_synapses(ndf: pd.DataFrame, client) -> tuple[n
     incluido no conectoma tem sinapses -- e essas sinapses ficam no
     neuropilo, fisicamente organizado por posicao retinotopica.
     """
-    from neuprint import fetch_synapses, SynapseCriteria as SC, NeuronCriteria as NC
-
-    body_ids = ndf["bodyId"].tolist()
-    syn_df = fetch_synapses(NC(bodyId=body_ids, client=client), SC(type="pre", client=client), client=client)
-    if len(syn_df) == 0:
-        return np.full(len(ndf), np.nan), 0
-    centroid = syn_df.groupby("bodyId")[["x", "y", "z"]].mean()
+    centroid = fetch_photoreceptor_centroids(ndf, client)
+    if len(centroid) == 0:
+        return np.full(len(ndf), np.nan), 0, centroid
     coords_by_body = {bid: row.tolist() for bid, row in centroid.iterrows()}
-    return _pca_project(coords_by_body, body_ids)
+    positions, n_valid = _pca_project(coords_by_body, ndf["bodyId"].tolist())
+    return positions, n_valid, centroid
 
 
 def fetch_real(token: str) -> tuple[pd.DataFrame, pd.DataFrame]:
@@ -126,15 +145,18 @@ def fetch_real(token: str) -> tuple[pd.DataFrame, pd.DataFrame]:
         crit = NC(type=regex, regex=True, client=client)
         ndf, _ = fetch_neurons(crit, client=client)
         if role == "photoreceptor":
-            positions, n_valid = compute_retina_positions_from_synapses(ndf, client)
-            ndf = ndf.copy()
+            positions, n_valid, centroid = compute_retina_positions_from_synapses(ndf, client)
+            ndf = add_centroid_columns(ndf, centroid)
             ndf["retina_pos"] = positions
             print(f"[fetch_connectome] retina_pos (PCA do centroide de sinapses) calculado para "
                   f"{n_valid}/{len(ndf)} fotorreceptores")
         else:
             ndf = ndf.copy()
             ndf["retina_pos"] = np.nan
-        ndf = ndf[["bodyId", "type", "instance", "status", "retina_pos"]].copy()
+            for axis in ("x", "y", "z"):
+                ndf[f"retina_{axis}"] = np.nan
+        ndf = ndf[["bodyId", "type", "instance", "status", "retina_pos",
+                   "retina_x", "retina_y", "retina_z"]].copy()
         ndf["role"] = role
         role_frames.append(ndf)
         print(f"[fetch_connectome] role={role:14s} regex={regex!r:20s} -> {len(ndf)} neurons")
@@ -199,6 +221,12 @@ def fetch_synthetic(seed: int = 0) -> tuple[pd.DataFrame, pd.DataFrame]:
                 # verdade (foi assim que a conectividade topografica abaixo
                 # foi construida).
                 "retina_pos": np.nan,
+                # No grafo sintetico a ordem de indice E a posicao
+                # retinotopica; retina_y = i permite testar
+                # retina_axis="elevation" tambem aqui (um "olho" so).
+                "retina_x": np.nan,
+                "retina_y": float(i) if role == "photoreceptor" else np.nan,
+                "retina_z": np.nan,
             })
     neurons_df = pd.DataFrame(rows)
 

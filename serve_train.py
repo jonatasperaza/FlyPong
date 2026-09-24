@@ -146,7 +146,8 @@ def run_condition(data_dir, *, condition, policy, train_seed, eval_seed,
                   dev_serves=DEFAULTS["dev_serves"],
                   homeostasis_rate=DEFAULTS["homeostasis_rate"],
                   target_rate=DEFAULTS["target_rate"],
-                  curve_every=0, curve_trials=100, verbose=True):
+                  curve_every=0, curve_trials=100, verbose=True,
+                  retina_axis="pca"):
     """Roda uma condicao do experimento.
 
     policy:
@@ -161,7 +162,8 @@ def run_condition(data_dir, *, condition, policy, train_seed, eval_seed,
     """
     if policy not in POLICIES:
         raise ValueError(f"unknown policy: {policy}")
-    runner = se.build_runner(data_dir, sensory_mode="egocentric")
+    runner = se.build_runner(data_dir, sensory_mode="egocentric",
+                             retina_axis=retina_axis)
     if condition == "inverted":
         se.invert_readout(runner)
     learner = CovarianceRPELearner(
@@ -199,7 +201,8 @@ def run_condition(data_dir, *, condition, policy, train_seed, eval_seed,
                    "reward_mode": reward_mode, "elig_mode": elig_mode,
                    "elig_decay": elig_decay, "w_cap_factor": w_cap_factor,
                    "dev_serves": dev_serves, "homeostasis_rate": homeostasis_rate,
-                   "target_rate": target_rate, "sensory_mode": "egocentric"},
+                   "target_rate": target_rate, "sensory_mode": "egocentric",
+                   "retina_axis": retina_axis},
         "weights": {"mean_before": float(w0.mean()), "mean_after": float(w1.mean()),
                     "frac_zero_after": float((w1 <= 1e-9).mean()),
                     "mean_abs_change": float(np.abs(w1 - w0).mean())},
@@ -226,6 +229,7 @@ def main_cli():
     ap.add_argument("--dev-serves", type=int, default=DEFAULTS["dev_serves"])
     ap.add_argument("--homeostasis-rate", type=float, default=DEFAULTS["homeostasis_rate"])
     ap.add_argument("--target-rate", type=float, default=DEFAULTS["target_rate"])
+    ap.add_argument("--retina-axis", choices=["pca", "elevation"], default="pca")
     ap.add_argument("--curve-every", type=int, default=0)
     ap.add_argument("--curve-trials", type=int, default=100)
     ap.add_argument("--out", default=None, help="acrescenta o resultado (JSONL)")
@@ -239,7 +243,7 @@ def main_cli():
         elig_decay=args.elig_decay, w_cap_factor=args.w_cap_factor,
         dev_serves=args.dev_serves, homeostasis_rate=args.homeostasis_rate,
         target_rate=args.target_rate, curve_every=args.curve_every,
-        curve_trials=args.curve_trials,
+        curve_trials=args.curve_trials, retina_axis=args.retina_axis,
     )
     print(f"{row['policy']}/{row['condition']} treino={row['train_seed']} "
           f"aval={row['eval_seed']} acerto={row['hit_rate']:.3f} "

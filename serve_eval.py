@@ -206,11 +206,12 @@ def oracle_policy(game: PongGame) -> int:
 
 
 def build_runner(data_dir: str, *, substeps=None, calibration_frames=None,
-                 sensory_mode="allocentric"):
+                 sensory_mode="allocentric", retina_axis="pca"):
     return main.FlyPongRunner(
         data_dir,
         signal_mode="real",
         sensory_mode=sensory_mode,
+        retina_axis=retina_axis,
         substeps=substeps,
         record_history=False,
         calibration_frames=calibration_frames,
@@ -228,6 +229,7 @@ def main_cli():
     ap.add_argument("--calibration-frames", type=int, default=None)
     ap.add_argument("--sensory-mode", choices=["allocentric", "egocentric"],
                     default="allocentric")
+    ap.add_argument("--retina-axis", choices=["pca", "elevation"], default="pca")
     ap.add_argument("--no-baselines", action="store_true",
                     help="nao roda as referencias paddle-parado e oraculo")
     ap.add_argument("--out", default=None, help="arquivo JSONL de saida (padrao: runs/)")
@@ -248,7 +250,8 @@ def main_cli():
     conditions = ["normal", "inverted"] if args.condition == "both" else [args.condition]
     runner = build_runner(args.data_dir, substeps=args.substeps,
                           calibration_frames=args.calibration_frames,
-                          sensory_mode=args.sensory_mode)
+                          sensory_mode=args.sensory_mode,
+                          retina_axis=args.retina_axis)
     inverted = False
     for cond in conditions:
         if (cond == "inverted") != inverted:
@@ -261,6 +264,7 @@ def main_cli():
                 "policy": "network_innate",
                 "condition": cond,
                 "sensory_mode": args.sensory_mode,
+                "retina_axis": args.retina_axis,
                 **res,
                 "motor_baseline_diff": runner.motor_baseline_diff,
                 "elapsed_seconds": time.perf_counter() - t0,
