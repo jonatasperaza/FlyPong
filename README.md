@@ -1334,6 +1334,42 @@ religação que a inversão exige.
   `docs/achado-19-resultados-real.jsonl`; o script recusa misturar origens. O grafo real tem ~45 mil neurônios, contra 750 do
   sintético, então cada execução deve ser dezenas de vezes mais lenta.
 
+#### 5. Primeiro contato com os dados reais: a retina 1D separa os olhos
+
+Ao rodar o protocolo no MaleCNS v1.0 real, o controle da condição invertida
+ficou em ~19–29%, perto do paddle parado. A investigação:
+- `retina_pos` é o 1º componente principal dos centroides de sinapse de
+  todos os fotorreceptores juntos. No dado real, esse eixo **separa olho
+  esquerdo (880) de olho direito (903)**: metade das posições normalizadas
+  fica em [0; 0,11], a outra metade em [0,79; 1], e **nenhum fotorreceptor
+  fica no meio**. Esse problema já existia e vale para todos os Achados com
+  dados reais, não só para o 19.
+- Com a retina egocêntrica, a bola perto do paddle cai nessa faixa vazia e a
+  rede fica em silêncio total (zero spikes em todas as camadas). Ela só vê a
+  bola quando está a mais de ~185 px do paddle.
+- A rede inata real acerta 22–24% nas duas condições, o mesmo que o paddle
+  parado. Um oráculo que sabe a direção certa, mas só age quando a bola
+  estimula a retina, acerta 23–31%. **Com essa retina, nenhuma regra pode
+  mostrar aprendizado no dado real.**
+- Os 4 descendentes reais (GF_R, GF_L, DNa10_R, DNa10_L) são divididos em
+  "sobe" = lado direito e "desce" = lado esquerdo. Com a retina PCA, a bola
+  no alto ativa o lado esquerdo, então o readout "normal" joga para o lado
+  errado.
+
+**Correção (opcional):** `--retina-axis elevation`.
+- A posição de cada fotorreceptor passa a ser o posto do seu centroide no
+  eixo y do neuPrint (dorso-ventral no sistema de coordenadas do FlyEM),
+  calculado dentro do próprio olho. Assim os dois olhos veem a bola em
+  qualquer altura.
+- Isso exige as colunas `retina_x/y/z`, que o `fetch_connectome.py` agora
+  salva. `scripts/add_retina_coords.py` as acrescenta a um
+  `neurons.parquet` existente, baixando só as sinapses dos fotorreceptores.
+- A orientação do eixo y ainda precisa ser conferida contra a anatomia. Um
+  sinal invertido só troca qual condição (normal/invertida) começa jogando
+  certo.
+- No grafo sintético, `elevation` e `pca` dão exatamente as mesmas posições
+  (testado), então os resultados acima não mudam.
+
 Reproduzir:
 `python fetch_connectome.py --synthetic --out-dir /tmp/syn && python
 scripts/run_achado19.py --data-dir /tmp/syn --out /tmp/achado19.jsonl`
