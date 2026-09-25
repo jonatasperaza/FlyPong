@@ -82,6 +82,23 @@ DN_SETS = {
     + "|DNp04|DNp103|DNp02|DNg40|DNp11|DNp06|DNp03|DNpe056|DNp05|DNp71|DNp35|DNpe025",
 }
 
+# Conjuntos de tipos acrescentados a papeis existentes (Achado 21). Os LC do
+# modelo recebiam so 13-49% da entrada real vinda do subgrafo
+# (docs/lc_candidatos_male-cns-v0.9_e_v1.0.txt). "achado21" inclui os tipos do
+# lobo optico mais fortes como entrada dos LC e os LC10c, pela regra fixada
+# antes de testar: entra o tipo com >= 35% da propria entrada vinda do
+# subgrafo ampliado (scripts/input_completeness.py,
+# docs/input_completeness_male-cns-v0.9.txt). TmY21, Li39 e LC10d ficaram de
+# fora por essa regra. Regex do neuPrint casa o nome inteiro: "T2" nao pega
+# "T2a", "Tm3" nao pega "Tm37".
+INPUT_SETS = {
+    "original": {},
+    "achado21": {
+        "interneuron": "TmY3|T2|Tm5Y|Tm3|Li22|Tm37|Tm5a|Y3|Tm39|Li28",
+        "target": "LC10c-1|LC10c-2",
+    },
+}
+
 NEUPRINT_SERVER = "https://neuprint.janelia.org"
 DATASET = "male-cns:v1.0"
 
@@ -331,8 +348,12 @@ def main():
                      help=f"dataset do neuPrint (padrao: {DATASET})")
     ap.add_argument("--dn-set", choices=sorted(DN_SETS), default="original",
                      help="conjunto de neuronios descendentes (ver DN_SETS)")
+    ap.add_argument("--input-set", choices=sorted(INPUT_SETS), default="original",
+                     help="tipos extras de entrada dos LC (ver INPUT_SETS)")
     args = ap.parse_args()
     role_regex = {**ROLE_TYPE_REGEX, "descending": DN_SETS[args.dn_set]}
+    for role, extra in INPUT_SETS[args.input_set].items():
+        role_regex[role] = f"{role_regex[role]}|{extra}"
 
     os.makedirs(args.out_dir, exist_ok=True)
 
@@ -346,7 +367,7 @@ def main():
                   "ou rode com --synthetic para desenvolvimento offline.", file=sys.stderr)
             sys.exit(1)
         print(f"[fetch_connectome] Conectando a {NEUPRINT_SERVER} dataset={args.dataset} "
-              f"dn_set={args.dn_set} ...")
+              f"dn_set={args.dn_set} input_set={args.input_set} ...")
         neurons_df, conn_df = fetch_real(args.token, args.dataset, role_regex)
         source_label = "real"
 
@@ -362,6 +383,7 @@ def main():
         "source": source_label,
         "dataset": args.dataset if source_label == "real" else "SYNTHETIC (nao e dado real)",
         "dn_set": args.dn_set,
+        "input_set": args.input_set,
         "citation": "Berg et al., 'A connectome of the adult male Drosophila central nervous system', Cell, 2026 (MaleCNS).",
         "fetched_at": datetime.now(timezone.utc).isoformat(),
         "n_neurons": int(len(neurons_df)),

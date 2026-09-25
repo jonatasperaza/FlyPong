@@ -46,7 +46,7 @@ def _job(args):
         retina_axis=axis, homeostasis_scope=scope, n_serves=serves,
     )
     row["data_source"] = data_source(data_dir)
-    row["dataset"], row["dn_set"] = data_tags(data_dir)
+    row["dataset"], row["dn_set"], row["input_set"] = data_tags(data_dir)
     return row
 
 
@@ -59,13 +59,15 @@ def metadata(data_dir) -> dict:
         return json.load(f)
 
 
-def data_tags(data_dir) -> tuple[str, str]:
-    """(dataset, dn_set). Metadados antigos, sem esses campos, sao o
-    male-cns:v1.0 com o conjunto original de descendentes."""
+def data_tags(data_dir) -> tuple[str, str, str]:
+    """(dataset, dn_set, input_set). Metadados antigos, sem esses campos, sao
+    o male-cns:v1.0 com os conjuntos originais."""
     meta = metadata(data_dir)
+    dn_set = meta.get("dn_set", "original")
+    input_set = meta.get("input_set", "original")
     if meta.get("source") != "real":
-        return ("synthetic", meta.get("dn_set", "original"))
-    return (meta.get("dataset", "male-cns:v1.0"), meta.get("dn_set", "original"))
+        return ("synthetic", dn_set, input_set)
+    return (meta.get("dataset", "male-cns:v1.0"), dn_set, input_set)
 
 
 def origin(row: dict) -> tuple:
@@ -74,7 +76,8 @@ def origin(row: dict) -> tuple:
     cfg = row.get("config", {})
     dataset_default = "male-cns:v1.0" if row.get("data_source") == "real" else "synthetic"
     return (str(row.get("data_source")), row.get("dataset", dataset_default),
-            row.get("dn_set", "original"), cfg.get("retina_axis", "pca"),
+            row.get("dn_set", "original"), row.get("input_set", "original"),
+            cfg.get("retina_axis", "pca"),
             cfg.get("homeostasis_scope", "plastic"),
             int(cfg.get("n_serves", st.DEFAULTS["n_serves"])))
 
@@ -137,12 +140,14 @@ def main_cli():
         print(f"ERRO: dados do conectoma nao encontrados em {args.data_dir}.")
         return 2
     source = data_source(args.data_dir)
-    dataset, dn_set = data_tags(args.data_dir)
+    dataset, dn_set, input_set = data_tags(args.data_dir)
     suffix = ""
     if source == "real" and dataset != "male-cns:v1.0":
         suffix += "-" + dataset.replace(":", "-")
     if dn_set != "original":
         suffix += f"-dn-{dn_set}"
+    if input_set != "original":
+        suffix += f"-in-{input_set}"
     if args.retina_axis != "pca":
         suffix += f"-{args.retina_axis}"
     if args.homeostasis_scope != "plastic":
@@ -151,13 +156,13 @@ def main_cli():
         suffix += f"-{args.serves}serves"
     out = Path(args.out) if args.out else HERE / "docs" / f"achado-19-resultados-{source}{suffix}.jsonl"
     rows = load(out)
-    this = (source, dataset, dn_set, args.retina_axis, args.homeostasis_scope, args.serves)
+    this = (source, dataset, dn_set, input_set, args.retina_axis, args.homeostasis_scope, args.serves)
     other = {origin(r) for r in rows.values()} - {this}
     if other:
         print(f"ERRO: {out} tem resultados de outra origem/eixo ({sorted(other)}); "
               f"esta rodada e {this}. Use outro --out.")
         return 2
-    print(f"[achado19] dados: {source} {dataset} dn={dn_set} ({args.data_dir}), "
+    print(f"[achado19] dados: {source} {dataset} dn={dn_set} in={input_set} ({args.data_dir}), "
           f"retina: {args.retina_axis}, "
           f"homeostase: {args.homeostasis_scope}, saques: {args.serves}; "
           f"resultados: {out}", flush=True)
