@@ -1,0 +1,28 @@
+{
+  "source": "real",
+  "dataset": "male-cns:v0.9",
+  "dn_set": "original",
+  "input_set": "achado21",
+  "citation": "Berg et al., 'A connectome of the adult male Drosophila central nervous system', Cell, 2026 (MaleCNS).",
+  "fetched_at": "2026-09-25T03:09:09.822147+00:00",
+  "n_neurons": 53131,
+  "n_edges": 1892661,
+  "counts_by_role": {
+    "interneuron": 36586,
+    "motion": 13585,
+    "photoreceptor": 1783,
+    "target": 530,
+    "dopaminergic": 332,
+    "object": 311,
+    "descending": 4
+  },
+  "role_type_regex": {
+    "photoreceptor": "R[1-8](-6)?[dpy]?",
+    "interneuron": "L1.*|L2.*|L3.*|L4.*|L5.*|Mi1.*|Mi4.*|Mi9.*|Tm1.*|Tm2.*|Tm4.*|Tm9.*|TmY3|T2|Tm5Y|Tm3|Li22|Tm37|Tm5a|Y3|Tm39|Li28",
+    "motion": "T4.*|T5.*",
+    "object": "LC4|LPLC2",
+    "target": "LC10a.*|LC10c-1|LC10c-2",
+    "descending": "DNa10.*|GF|GiantFiber.*|DNp01.*",
+    "dopaminergic": "PAM.*|PPL1.*"
+  }
+}
