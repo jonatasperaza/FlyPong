@@ -1,0 +1,19 @@
+type,kind,completude_antes,completude_depois,peso_para_LC
+LC4,LC alvo,0.233,0.692,
+LPLC2,LC alvo,0.5,0.738,
+LC10a,LC alvo,0.129,0.325,
+LC10c-1,LC alvo,0.258,0.442,
+LC10c-2,LC alvo,0.192,0.357,
+LC10d,LC alvo,0.103,0.227,
+TmY3,novo,0.679,0.78,41832.0
+T2,novo,0.415,0.587,38572.0
+Tm5Y,novo,0.261,0.495,34907.0
+Tm3,novo,0.755,0.809,12782.0
+Li22,novo,0.246,0.398,12465.0
+Tm37,novo,0.213,0.384,12157.0
+TmY21,novo,0.114,0.219,12041.0
+Tm5a,novo,0.273,0.416,10564.0
+Y3,novo,0.521,0.551,10152.0
+Tm39,novo,0.355,0.509,8160.0
+Li39,novo,0.036,0.16,7213.0
+Li28,novo,0.447,0.898,7166.0
