@@ -1596,6 +1596,66 @@ Resultados por seed:
 - `docs/achado-19-resultados-real-male-cns-v0.9-elevation-visual-1500serves.jsonl`
   (4 descendentes).
 
+### Achado 21 (entrada completa dos LC: o diagnóstico prévio mostrou piora; protocolo não executado)
+
+**Resumo:** completar a entrada dos LC com os tipos do lobo óptico que
+faltavam **piorou** a informação disponível no modelo. A causa é que quase
+todo o lobo óptico do modelo está saturado. Por isso as 36 execuções
+registradas em `docs/achado-21-protocolo.md` **não foram rodadas**. Esse é um
+desvio do protocolo, e ele se justifica pelo diagnóstico abaixo, que o
+próprio protocolo permitia fazer antes. A correção da saturação levou ao
+Achado 22.
+
+**Motivação.** `scripts/find_lc_candidates.py`
+(`docs/lc_candidatos_male-cns-v0.9_e_v1.0.txt`) mostrou que os LC do modelo
+recebem só uma parte da entrada real vinda do subgrafo: LC10a 12,9%, LC4
+23,3% e LPLC2 49%.
+
+**Ampliação.** `scripts/input_completeness.py`
+(`docs/input_completeness_male-cns-v0.9.txt`) escolheu os tipos pela regra
+"≥ 35% da própria entrada vinda do subgrafo ampliado":
+- entraram TmY3, T2, Tm5Y, Tm3, Li22, Tm37, Tm5a, Y3, Tm39, Li28 e LC10c-1/-2;
+- ficaram de fora TmY21, Li39 e LC10d;
+- com isso, a entrada do LC4 vinda do subgrafo sobe para 69%, a do LPLC2
+  para 74% e a do LC10a para 33%;
+- o subgrafo passou a ter 53.131 neurônios e 1.892.661 arestas
+  (`--input-set achado21`).
+
+**Diagnóstico** (depois da fase de desenvolvimento; decodificação linear de
+"bola acima/abaixo"; acaso ≈ 53%):
+
+| | 4 descendentes (v0.9) | ampliado |
+|---|---:|---:|
+| object (LC4/LPLC2) | 83,1% | 67,1% |
+| LC10a | 71,0% | 63,4% |
+| fiação, condição normal | 73,1% | 63,1% |
+| fiação, condição invertida | 83,1% | 67,3% |
+
+**Causa: saturação quase total do lobo óptico.**
+- Sem homeostase, os tipos novos disparam na taxa máxima em 97–100% dos
+  neurônios, com decodificação de 57–64%. Só o Tm5a escapa (65% saturado,
+  89,8% de decodificação).
+- Até os Tm1/Tm4 originais estão 86–92% saturados.
+- TmY3 e T2 respondem sozinhos por 44% da entrada do LC4, então a ampliação
+  acrescentou sobretudo entrada saturada e diluiu o sinal.
+- A causa de fundo é o ganho sináptico único (0,3) para o cérebro inteiro.
+
+**Correção testada (diagnóstico):** a mesma homeostase, sem recompensa,
+aplicada às entradas de **todo** neurônio visual (interneurônios, T4/T5 e
+LC) na fase de desenvolvimento:
+
+| | 4 descendentes | ampliado |
+|---|---:|---:|
+| neurônios saturados (todas as camadas) | 0% | 0% |
+| object | 87,8% | 89,7% |
+| LC10a | 80,9% | 90,2% |
+| LC10c | — | 90,5% |
+| fiação, condição normal | 84,9% | **88,1%** |
+| fiação, condição invertida | 88,1% | 88,3% |
+
+A assimetria entre as condições desaparece. Com os dados ampliados, a
+fiação da condição normal chega ao nível do grafo sintético (89%).
+
 ## Limitações conhecidas
 
 - (Histórico, corrigido no Achado 9) O pool `descending` original tinha só
