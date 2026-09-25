@@ -128,7 +128,7 @@ def main_cli():
     ap.add_argument("--retina-axis", choices=["pca", "elevation"], default="pca",
                     help="elevation: posicao na retina = elevacao dentro de cada olho "
                          "(exige retina_y; ver scripts/add_retina_coords.py)")
-    ap.add_argument("--homeostasis-scope", choices=["plastic", "visual"], default="plastic")
+    ap.add_argument("--homeostasis-scope", choices=list(st.HOMEOSTASIS_SCOPES), default="plastic")
     ap.add_argument("--serves", type=int, default=st.DEFAULTS["n_serves"])
     ap.add_argument("--trials", type=int, default=se.DEFAULT_TRIALS)
     ap.add_argument("--curve-every", type=int, default=500)

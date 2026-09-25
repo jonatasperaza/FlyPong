@@ -139,6 +139,7 @@ DEFAULTS = dict(
 DEV_SEED_OFFSET = 500_000
 
 POLICIES = ("trained", "control_homeostasis", "control_innate")
+HOMEOSTASIS_SCOPES = ("plastic", "visual", "all_visual")
 
 
 def run_condition(data_dir, *, condition, policy, train_seed, eval_seed,
@@ -177,14 +178,23 @@ def run_condition(data_dir, *, condition, policy, train_seed, eval_seed,
     w0 = runner.net.W.data[runner.net.plastic_data_idx].copy()
     t0 = time.perf_counter()
     tr = {"curve": [], "train_hit_rate": None}
-    if homeostasis_scope not in ("plastic", "visual"):
+    if homeostasis_scope not in HOMEOSTASIS_SCOPES:
         raise ValueError(f"unknown homeostasis_scope: {homeostasis_scope}")
     on_frame = None
-    if homeostasis_scope == "visual":
-        # Tambem escala todas as entradas dos neuronios LC (object/target).
+    if homeostasis_scope != "plastic":
         net = runner.net
-        lc = np.concatenate([net.object_idx, net.target_idx])
-        on_frame = HomeostaticScaler(net, lc, rate=homeostasis_rate,
+        if homeostasis_scope == "visual":
+            # Tambem escala todas as entradas dos neuronios LC (object/target).
+            scaled = np.concatenate([net.object_idx, net.target_idx])
+        else:
+            # "all_visual": todas as entradas de todo neuronio visual
+            # (interneuronios, T4/T5, LC). Com o ganho sinaptico unico do
+            # modelo, quase todo o lobo optico dispara na taxa maxima; em
+            # saturacao a informacao de posicao se perde antes dos LC
+            # (Achado 21).
+            scaled = np.concatenate([net.role_idx.get(k, np.empty(0, dtype=np.int64))
+                                     for k in ("interneuron", "motion", "object", "target")])
+        on_frame = HomeostaticScaler(net, scaled, rate=homeostasis_rate,
                                      target_rate=target_rate).update
     if policy != "control_innate" and dev_serves > 0:
         train(runner, learner, n_serves=dev_serves, on_frame=on_frame,
@@ -243,10 +253,11 @@ def main_cli():
     ap.add_argument("--dev-serves", type=int, default=DEFAULTS["dev_serves"])
     ap.add_argument("--homeostasis-rate", type=float, default=DEFAULTS["homeostasis_rate"])
     ap.add_argument("--target-rate", type=float, default=DEFAULTS["target_rate"])
-    ap.add_argument("--homeostasis-scope", choices=["plastic", "visual"],
+    ap.add_argument("--homeostasis-scope", choices=list(HOMEOSTASIS_SCOPES),
                     default=DEFAULTS["homeostasis_scope"],
                     help="visual: a fase de desenvolvimento tambem escala as entradas "
-                         "dos neuronios LC (object/target)")
+                         "dos neuronios LC (object/target); all_visual: de todo neuronio "
+                         "visual")
     ap.add_argument("--retina-axis", choices=["pca", "elevation"], default="pca")
     ap.add_argument("--curve-every", type=int, default=0)
     ap.add_argument("--curve-trials", type=int, default=100)
