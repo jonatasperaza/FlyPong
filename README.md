@@ -1512,6 +1512,20 @@ Protocolo e critérios foram registrados antes da execução em
 - O servidor do neuPrint deixou de oferecer o `male-cns:v1.0`, então tudo
   aqui usa o `male-cns:v0.9`. Neste subgrafo as versões são quase idênticas:
   44.989 neurônios, 1.157.841 contra 1.157.952 arestas.
+- **Comparação direta das duas versões** (feita depois que a v1.0 voltou
+  ao servidor), entre o que baixamos da v1.0 em 10/09 e da v0.9 em 24/09,
+  com 4 descendentes:
+  - os mesmos 44.989 `bodyId`, com tipo, instância e papel idênticos;
+    só 2 status diferem;
+  - 1.157.782 arestas em comum, 170 só na v1.0, 59 só na v0.9, e 23 com
+    peso diferente, de ~5,6 milhões de sinapses somadas;
+  - centroides da retina **idênticos**.
+
+  Para este subgrafo, a troca de versão é desprezível, então os números da
+  v0.9 e da v1.0 são comparáveis. As notas públicas de versão dizem que a
+  v1.0 (08/06/2026) trouxe "pequenas mudanças de revisão e refinamento de
+  anotações" sobre a v0.9 (05/10/2025). Não encontramos explicação pública
+  para a v1.0 ter sumido temporariamente da lista do servidor.
 - Os descendentes novos saíram de `scripts/find_dn_candidates.py`
   (`docs/dn_candidatos_male-cns-v0.9.txt`). O critério foi fixado antes de
   qualquer teste: tipos com par bilateral e ≥ 1000 de peso vindo dos LC já
