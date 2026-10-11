@@ -37,14 +37,22 @@ import serve_train as st
 CONDITIONS = ("inverted", "normal")
 
 
+def checkpoint_path(out: Path, condition: str, policy: str, eval_seed: int) -> Path:
+    """Checkpoint de uma execucao em andamento (runs/ fica fora do git)."""
+    return HERE / "runs" / "checkpoints" / out.stem / f"{condition}_{policy}_{eval_seed}.pkl"
+
+
 def _job(args):
-    data_dir, condition, policy, train_seed, eval_seed, trials, curve_every, axis, scope, serves = args
+    (data_dir, condition, policy, train_seed, eval_seed, trials, curve_every, axis,
+     scope, serves, ck_path) = args
     row = st.run_condition(
         data_dir, condition=condition, policy=policy, train_seed=train_seed,
         eval_seed=eval_seed, eval_trials=trials,
         curve_every=curve_every if policy == "trained" else 0, verbose=False,
         retina_axis=axis, homeostasis_scope=scope, n_serves=serves,
+        checkpoint_path=str(ck_path),
     )
+    row["_checkpoint"] = str(ck_path)
     row["data_source"] = data_source(data_dir)
     row["dataset"], row["dn_set"], row["input_set"] = data_tags(data_dir)
     return row
@@ -169,7 +177,8 @@ def main_cli():
     if not args.summary_only:
         jobs = [
             (args.data_dir, cond, pol, tr, ev, args.trials, args.curve_every,
-             args.retina_axis, args.homeostasis_scope, args.serves)
+             args.retina_axis, args.homeostasis_scope, args.serves,
+             checkpoint_path(out, cond, pol, ev))
             for cond in CONDITIONS
             for pol in ("trained",) + st.POLICIES[1:]
             for tr, ev in zip(se.TRAIN_SEEDS, se.EVAL_SEEDS)
@@ -179,8 +188,12 @@ def main_cli():
         out.parent.mkdir(parents=True, exist_ok=True)
         with Pool(args.workers) as pool:
             for row in pool.imap_unordered(_job, jobs):
+                ck = row.pop("_checkpoint")
                 with open(out, "a", encoding="utf-8") as f:
                     f.write(json.dumps(row, ensure_ascii=False) + "\n")
+                # So depois de gravar o resultado: se o processo cair antes, a
+                # execucao e retomada do checkpoint.
+                Path(ck).unlink(missing_ok=True)
                 rows[(row["condition"], row["policy"], row["eval_seed"])] = row
                 print(f"[achado19] {row['condition']}/{row['policy']} "
                       f"seed={row['eval_seed']} acerto={row['hit_rate']:.3f} "

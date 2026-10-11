@@ -29,6 +29,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import pickle
 import random
 import time
 
@@ -54,23 +55,40 @@ def _distance(game):
 
 def train(runner, learner, *, n_serves, train_seed, noise_std, reward_mode,
           elig_mode="covariance", curve_every=0, curve_seed=None, curve_trials=100,
-          curve_noise=0.0, log=None, on_frame=None):
+          curve_noise=0.0, log=None, on_frame=None,
+          resume=None, checkpoint=None, checkpoint_every=50):
     """Treina `learner` em `n_serves` saques. Devolve a curva de avaliacao
-    (lista de dicts) se `curve_every` > 0."""
+    (lista de dicts) se `curve_every` > 0.
+
+    `checkpoint(state)`, se dado, e chamado no inicio de cada saque multiplo
+    de `checkpoint_every` (exceto o primeiro) com o estado do laco: indice do
+    saque, geradores aleatorios, jogo, curva parcial e acertos. Passar esse
+    dict em `resume` continua o laco exatamente do mesmo ponto: o resultado e
+    identico ao de uma execucao sem interrupcao (o estado da rede e do
+    aprendiz e salvo junto, por quem chama).
+    """
     net = runner.net
-    rng = random.Random(train_seed)
-    noise_rng = np.random.default_rng(train_seed + 7919)
-    game = PongGame(seed=train_seed)
+    if resume is None:
+        rng = random.Random(train_seed)
+        noise_rng = np.random.default_rng(train_seed + 7919)
+        game = PongGame(seed=train_seed)
+        curve = []
+        hits = 0
+        k0 = 0
+    else:
+        rng, noise_rng, game = resume["rng"], resume["noise_rng"], resume["game"]
+        curve, hits, k0 = resume["curve"], resume["hits"], resume["k"]
     external = np.zeros(net.n, dtype=np.float64)
     accum = np.zeros(net.n, dtype=np.float64)
     noise_sum = np.zeros(net.n, dtype=np.float64)
     desc = net.descending_idx
-    curve = []
     saved_lr = netmod.PLASTIC_LR
     netmod.PLASTIC_LR = 0.0  # a regra original fica desligada
-    hits = 0
     try:
-        for k in range(n_serves):
+        for k in range(k0, n_serves):
+            if checkpoint is not None and k > k0 and k % checkpoint_every == 0:
+                checkpoint({"k": k, "rng": rng, "noise_rng": noise_rng, "game": game,
+                            "curve": curve, "hits": hits})
             if curve_every and k % curve_every == 0:
                 curve.append({"serves": k, **se.evaluate_network(runner, curve_trials, curve_seed, curve_noise)})
                 if log:
@@ -128,6 +146,23 @@ def train(runner, learner, *, n_serves, train_seed, noise_std, reward_mode,
     return {"curve": curve, "train_hit_rate": hits / max(1, n_serves)}
 
 
+def _save_checkpoint(path, obj):
+    """Grava `obj` de forma atomica (arquivo temporario + rename)."""
+    path = os.fspath(path)
+    os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
+    tmp = path + ".tmp"
+    with open(tmp, "wb") as f:
+        pickle.dump(obj, f, protocol=pickle.HIGHEST_PROTOCOL)
+    os.replace(tmp, path)
+
+
+def _load_checkpoint(path):
+    if path is None or not os.path.exists(path):
+        return None
+    with open(path, "rb") as f:
+        return pickle.load(f)
+
+
 # Hiperparametros escolhidos so nas VALIDATION_SEEDS (varredura registrada no
 # README, Achado 19), antes de qualquer rodada nas EVAL_SEEDS.
 DEFAULTS = dict(
@@ -152,7 +187,7 @@ def run_condition(data_dir, *, condition, policy, train_seed, eval_seed,
                   target_rate=DEFAULTS["target_rate"],
                   homeostasis_scope=DEFAULTS["homeostasis_scope"],
                   curve_every=0, curve_trials=100, verbose=True,
-                  retina_axis="pca"):
+                  retina_axis="pca", checkpoint_path=None, checkpoint_every=50):
     """Roda uma condicao do experimento.
 
     policy:
@@ -167,50 +202,78 @@ def run_condition(data_dir, *, condition, policy, train_seed, eval_seed,
     """
     if policy not in POLICIES:
         raise ValueError(f"unknown policy: {policy}")
-    runner = se.build_runner(data_dir, sensory_mode="egocentric",
-                             retina_axis=retina_axis)
-    if condition == "inverted":
-        se.invert_readout(runner)
-    learner = CovarianceRPELearner(
-        runner.net, eta=0.0, elig_decay=elig_decay, w_cap_factor=w_cap_factor,
-        homeostasis_rate=homeostasis_rate, target_rate=target_rate,
-    )
-    w0 = runner.net.W.data[runner.net.plastic_data_idx].copy()
-    t0 = time.perf_counter()
-    tr = {"curve": [], "train_hit_rate": None}
     if homeostasis_scope not in HOMEOSTASIS_SCOPES:
         raise ValueError(f"unknown homeostasis_scope: {homeostasis_scope}")
-    on_frame = None
-    if homeostasis_scope != "plastic":
-        net = runner.net
-        if homeostasis_scope == "visual":
-            # Tambem escala todas as entradas dos neuronios LC (object/target).
-            scaled = np.concatenate([net.object_idx, net.target_idx])
-        else:
-            # "all_visual": todas as entradas de todo neuronio visual
-            # (interneuronios, T4/T5, LC). Com o ganho sinaptico unico do
-            # modelo, quase todo o lobo optico dispara na taxa maxima; em
-            # saturacao a informacao de posicao se perde antes dos LC
-            # (Achado 21).
-            scaled = np.concatenate([net.role_idx.get(k, np.empty(0, dtype=np.int64))
-                                     for k in ("interneuron", "motion", "object", "target")])
-        on_frame = HomeostaticScaler(net, scaled, rate=homeostasis_rate,
-                                     target_rate=target_rate).update
-    if policy != "control_innate" and dev_serves > 0:
-        train(runner, learner, n_serves=dev_serves, on_frame=on_frame,
-              train_seed=train_seed + DEV_SEED_OFFSET, noise_std=noise_std,
-              # eta = 0 aqui, entao a recompensa nao importa; "dense" so
-              # garante que a homeostase atualiza a cada frame.
-              reward_mode="dense")
-    learner.homeostasis_rate = 0.0
-    if policy == "trained":
-        learner.eta = eta
-        tr = train(runner, learner, n_serves=n_serves, train_seed=train_seed,
-                   noise_std=noise_std, reward_mode=reward_mode, elig_mode=elig_mode,
-                   curve_every=curve_every,
-                   curve_seed=eval_seed if curve_every else None,
-                   curve_trials=curve_trials, curve_noise=noise_std,
-                   log=print if verbose else None)
+    t0 = time.perf_counter()
+    ck = _load_checkpoint(checkpoint_path)
+    if ck is None:
+        runner = se.build_runner(data_dir, sensory_mode="egocentric",
+                                 retina_axis=retina_axis)
+        if condition == "inverted":
+            se.invert_readout(runner)
+        learner = CovarianceRPELearner(
+            runner.net, eta=0.0, elig_decay=elig_decay, w_cap_factor=w_cap_factor,
+            homeostasis_rate=homeostasis_rate, target_rate=target_rate,
+        )
+        w0 = runner.net.W.data[runner.net.plastic_data_idx].copy()
+        scaler = None
+        if homeostasis_scope != "plastic":
+            net = runner.net
+            if homeostasis_scope == "visual":
+                # Tambem escala todas as entradas dos neuronios LC (object/target).
+                scaled = np.concatenate([net.object_idx, net.target_idx])
+            else:
+                # "all_visual": todas as entradas de todo neuronio visual
+                # (interneuronios, T4/T5, LC). Com o ganho sinaptico unico do
+                # modelo, quase todo o lobo optico dispara na taxa maxima; em
+                # saturacao a informacao de posicao se perde antes dos LC
+                # (Achado 21).
+                scaled = np.concatenate([net.role_idx.get(k, np.empty(0, dtype=np.int64))
+                                         for k in ("interneuron", "motion", "object", "target")])
+            scaler = HomeostaticScaler(net, scaled, rate=homeostasis_rate,
+                                       target_rate=target_rate)
+        phase, loop_state, tr, elapsed_before = "dev", None, {"curve": [], "train_hit_rate": None}, 0.0
+    else:
+        runner, learner, scaler, w0 = ck["runner"], ck["learner"], ck["scaler"], ck["w0"]
+        phase, loop_state, tr, elapsed_before = ck["phase"], ck["loop_state"], ck["tr"], ck["elapsed"]
+        if verbose:
+            print(f"  retomando do checkpoint: fase={phase} saque={loop_state['k'] if loop_state else 0}")
+
+    def save(phase_now, state):
+        if checkpoint_path is None:
+            return
+        _save_checkpoint(checkpoint_path, {
+            "runner": runner, "learner": learner, "scaler": scaler, "w0": w0,
+            "phase": phase_now, "loop_state": state, "tr": tr,
+            "elapsed": elapsed_before + time.perf_counter() - t0,
+        })
+
+    on_frame = scaler.update if scaler is not None else None
+    if phase == "dev":
+        if policy != "control_innate" and dev_serves > 0:
+            train(runner, learner, n_serves=dev_serves, on_frame=on_frame,
+                  train_seed=train_seed + DEV_SEED_OFFSET, noise_std=noise_std,
+                  # eta = 0 aqui, entao a recompensa nao importa; "dense" so
+                  # garante que a homeostase atualiza a cada frame.
+                  reward_mode="dense",
+                  resume=loop_state, checkpoint_every=checkpoint_every,
+                  checkpoint=lambda st: save("dev", st))
+        learner.homeostasis_rate = 0.0
+        if policy == "trained":
+            learner.eta = eta
+        phase, loop_state = "train", None
+        save("train", None)
+    if phase == "train":
+        if policy == "trained":
+            tr = train(runner, learner, n_serves=n_serves, train_seed=train_seed,
+                       noise_std=noise_std, reward_mode=reward_mode, elig_mode=elig_mode,
+                       curve_every=curve_every,
+                       curve_seed=eval_seed if curve_every else None,
+                       curve_trials=curve_trials, curve_noise=noise_std,
+                       log=print if verbose else None,
+                       resume=loop_state, checkpoint_every=checkpoint_every,
+                       checkpoint=lambda st: save("train", st))
+        phase = "final"
     final = se.evaluate_network(runner, eval_trials, eval_seed, noise_std)
     w1 = runner.net.W.data[runner.net.plastic_data_idx]
     return {
@@ -230,7 +293,7 @@ def run_condition(data_dir, *, condition, policy, train_seed, eval_seed,
         "weights": {"mean_before": float(w0.mean()), "mean_after": float(w1.mean()),
                     "frac_zero_after": float((w1 <= 1e-9).mean()),
                     "mean_abs_change": float(np.abs(w1 - w0).mean())},
-        "elapsed_seconds": time.perf_counter() - t0,
+        "elapsed_seconds": elapsed_before + time.perf_counter() - t0,
     }
 
 
