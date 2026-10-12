@@ -1,0 +1,76 @@
+#!/usr/bin/env python3
+"""Achado 24: trajetoria da atividade durante a fase de desenvolvimento.
+
+Uso: python scripts/diagnostics/dev_trajectory.py <seed de treino> [saques] [synapse_sign]
+
+Repete a fase de desenvolvimento da configuracao A (connectome_v09_in21,
+all_visual, mesmos parametros e seeds de run_condition) e registra, a cada
+saque, a taxa media (spikes/passo) dos interneuronios, dos LC e dos
+descendentes, e a fracao de frames em "explosao" (LC acima de 0,1
+spike/passo). Grava uma linha por saque em
+runs/dev_trajectory/<seed>_<synapse_sign>.tsv.
+"""
+import sys
+from pathlib import Path
+
+import numpy as np
+
+HERE = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(HERE))
+import serve_eval as se
+import serve_train as st
+from sim.covariance_rule import CovarianceRPELearner, HomeostaticScaler
+
+seed = int(sys.argv[1])
+n_serves = int(sys.argv[2]) if len(sys.argv) > 2 else 300
+sign = sys.argv[3] if len(sys.argv) > 3 else "none"
+d = st.DEFAULTS
+r = se.build_runner(str(HERE / "connectome_v09_in21"), sensory_mode="egocentric",
+                    retina_axis="elevation", synapse_sign=sign)
+net = r.net
+learner = CovarianceRPELearner(net, eta=0.0, elig_decay=d["elig_decay"], w_cap_factor=d["w_cap_factor"],
+                               homeostasis_rate=d["homeostasis_rate"], target_rate=d["target_rate"])
+vis = np.concatenate([net.role_idx[k] for k in ("interneuron", "motion", "object", "target")])
+scaler = HomeostaticScaler(net, vis, rate=d["homeostasis_rate"], target_rate=d["target_rate"])
+lc = np.concatenate([net.object_idx, net.target_idx])
+inter = net.role_idx["interneuron"]
+desc = net.descending_idx
+out = HERE / "runs" / "dev_trajectory" / f"{seed}_{sign}.tsv"
+out.parent.mkdir(parents=True, exist_ok=True)
+f = open(out, "w")
+f.write("saque\tinterneuronio\tLC\tDN\tfrac_explosao\tframes\n")
+acc = {"i": [], "l": [], "d": []}
+state = {"k": 0}
+
+
+def on_frame(counts):
+    scaler.update(counts)
+    acc["i"].append(counts[inter].mean() / r.substeps)
+    acc["l"].append(counts[lc].mean() / r.substeps)
+    acc["d"].append(counts[desc].mean() / r.substeps)
+
+
+def flush():
+    if acc["l"]:
+        l = np.array(acc["l"])
+        f.write(f"{state['k']}\t{np.mean(acc['i']):.4f}\t{l.mean():.4f}\t{np.mean(acc['d']):.4f}\t"
+                f"{np.mean(l > 0.1):.3f}\t{len(l)}\n")
+        f.flush()
+    for v in acc.values():
+        v.clear()
+
+
+def at_serve_start(loop_state):
+    # train() chama o checkpoint no inicio de cada saque k > 0: as contagens
+    # acumuladas sao as do saque k - 1.
+    state["k"] = loop_state["k"] - 1
+    flush()
+
+
+st.train(r, learner, n_serves=n_serves, train_seed=seed + st.DEV_SEED_OFFSET,
+         noise_std=d["noise_std"], reward_mode="dense", on_frame=on_frame,
+         checkpoint=at_serve_start, checkpoint_every=1)
+state["k"] = n_serves - 1
+flush()
+f.close()
+print(out)
