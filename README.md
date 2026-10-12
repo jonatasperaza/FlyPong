@@ -1798,6 +1798,84 @@ de teste. Antes de pré-registrar um novo protocolo nas seeds 1001–1006, é
 preciso achar, na validação, uma mudança que funcione na maioria das seeds
 de treino.
 
+### Achado 24 (a loteria do desenvolvimento é uma rede biestável; o recozimento da homeostase torna o aprendizado confiável na validação)
+
+**Parte 1 — diagnóstico e escolha da mudança (só validação).** Tudo nesta
+parte usa a seed de avaliação 2001, a condição normal, a configuração A e as
+seeds de treino 1, 3, 5 e 42. As seeds de teste não foram usadas. O
+protocolo do teste está em `docs/achado-24-protocolo.md`.
+
+**Três correções que não funcionaram** (acerto final; seeds 1 / 3 / 5 / 42):
+
+| mudança | 1 | 3 | 5 | 42 | arquivo |
+|---|---:|---:|---:|---:|---|
+| ruído de exploração antissimétrico (+ξ à direita, −ξ à esquerda) | 80,0% | 31,0% | 30,0% | 34,3% | `docs/antissimetrico.jsonl` |
+| sinapses inibitórias pelo neurotransmissor previsto (GABA e glutamato) | 59,7% | 20,7% | 29,0% | 39,3% | `docs/inibicao.jsonl` |
+| recozimento + taxa alvo visual 0,05 | 25,7% | 39,0% | 24,3% | 29,0% | `docs/recozimento.jsonl` |
+
+- O sinal das sinapses vem da tabela pública do MaleCNS
+  (`body-neurotransmitters-male-cns-v0.9.feather`, `consensus_nt`). Ela
+  cobre todos os 53.131 neurônios do subgrafo: 8.378 interneurônios
+  inibitórios (como Mi4, GABA, e Mi9 e L1, glutamato). LC, T4/T5 e
+  descendentes são colinérgicos. A opção `synapse_sign="nt"` fica
+  disponível; o padrão continua todo excitatório.
+
+**O mecanismo** (`scripts/diagnostics/`, saídas em `docs/diagnostico/`):
+1. **A rede é biestável.** Dentro de um saque, a atividade começa quase nula
+   e, em parte dos saques, explode: interneurônios, T4/T5 e LC chegam a
+   ~0,2 spike por passo. Os LC recebem 15–36% da entrada de outros LC, um
+   laço excitatório forte. A homeostase só acerta a média: durante o
+   desenvolvimento, todas as seeds ficam com ~1/3 dos frames em explosão
+   (`dev_trajectory.py`). A inibição pelo neurotransmissor não muda isso: a
+   homeostase aumenta as entradas excitatórias até a rede voltar a explodir.
+2. **O estado final depende dos últimos saques.** A homeostase reage saque a
+   saque: um saque explosivo reduz os pesos e um calmo os aumenta. Na rede
+   congelada no fim do desenvolvimento, a fração de frames em explosão
+   ordena as seeds pelo aprendizado: seed 1 com **0,00** (aprende, 83%),
+   seed 5 com 0,46, seed 42 com 0,59 e seed 3 com 0,72 (não aprendem).
+3. **Na explosão, quase todos os LC preferem o mesmo lado da bola.** Na seed
+   3, 93% dos LC disparam mais com a bola abaixo do paddle e nenhum com ela
+   acima. Os pesos plásticos são positivos, então o lado "sobe" do readout
+   fica sem sinal. A regra tenta: os pesos que mudam acompanham a
+   seletividade de cada LC (correlação +0,93 no "desce"). Mas, depois do
+   treino, os quatro descendentes disparam mais com a bola abaixo. Na seed
+   1, a regra produz a separação esperada: GF_R ("sobe") passa a disparar
+   com a bola acima (correlação −0,44) e GF_L ("desce") com a bola abaixo
+   (+0,19) (`learned_weights.py`).
+4. **Correção de um diagnóstico anterior:** relatei antes que, nas seeds que
+   falham, o ruído de exploração quase não movia a decisão. Era um artefato
+   do meu script: a regra de plasticidade original (`PLASTIC_LR`) ficava
+   ligada fora de `train()` e sobrescrevia os pesos plásticos. Com ela
+   desligada, a correlação ruído–decisão fica em 0,54–0,59 em todas as
+   seeds. Os experimentos oficiais (`train`, `evaluate_network`,
+   `calibrate_baseline`) sempre a desligaram. A calibração do construtor do
+   runner a deixa ligada e muda os pesos plásticos iniciais em no máximo
+   0,18 (peso médio 8,2). O efeito é igual em todas as condições, e não
+   mexi nele para manter os Achados reproduzíveis.
+
+**A mudança: recozimento da homeostase** (`dev_anneal_serves=100`). Nos
+últimos 100 saques do desenvolvimento, a taxa das duas homeostases cai
+linearmente até zero. Os pesos convergem para a média, em vez de congelar no
+estado dos últimos saques. Não usa recompensa nem a direção da bola. Na rede
+congelada, as 4 seeds ficam parecidas: explosão em 0,10–0,25 dos frames e LC
+dos dois lados (seed 5: 43% preferem abaixo e 43% acima; seed 3: 69%/26%;
+seed 1: 57%/26%; seed 42: 15%/65%). Com recozimento + taxa alvo 0,05, os LC
+ficam calados na rede congelada, o que explica a terceira correção da
+tabela.
+
+**Treino na validação com recozimento** (`docs/recozimento-so.jsonl`):
+
+| seed | sem recozimento | com recozimento | curva (0/500/1000/1500) |
+|---|---:|---:|---|
+| 1 | 83,0% | **64,7%** [59,1; 69,9] | 23 / 62 / 75 / 57% |
+| 3 | 27,7% | **47,7%** [42,1; 53,3] | 20 / 35 / 53 / 45% |
+| 5 | — | **57,3%** [51,7; 62,8] | 20 / 54 / 55 / 56% |
+| 42 | — | **47,0%** [41,4; 52,7] | 21 / 47 / 48 / 48% |
+
+As 4 seeds aprendem; antes, só 1. A seed 1 perde parte do pico. Por isso o
+teste pré-registrado (parte 2) mede a confiabilidade entre seeds, além do
+acerto.
+
 ## Limitações conhecidas
 
 - (Histórico, corrigido no Achado 9) O pool `descending` original tinha só
