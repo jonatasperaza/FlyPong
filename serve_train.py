@@ -259,7 +259,8 @@ def run_condition(data_dir, *, condition, policy, train_seed, eval_seed,
                   curve_every=0, curve_trials=100, verbose=True,
                   retina_axis="pca", checkpoint_path=None, checkpoint_every=50,
                   dev_seed=None, recalibrate_after_dev=False,
-                  visual_target_rate=None, noise_mode="independent"):
+                  visual_target_rate=None, noise_mode="independent",
+                  synapse_sign="none"):
     """Roda uma condicao do experimento.
 
     policy:
@@ -290,6 +291,9 @@ def run_condition(data_dir, *, condition, policy, train_seed, eval_seed,
     `noise_mode`: estrutura do ruido de exploracao so na fase de TREINO (ver
     `train`). O desenvolvimento e a avaliacao usam sempre ruido independente,
     entao o estado pos-desenvolvimento nao muda.
+
+    `synapse_sign`: "none" (todas as sinapses excitatorias, como ate o Achado
+    23) ou "nt" (GABA e glutamato inibitorios; ver sim/network.py).
     """
     if dev_seed is None:
         dev_seed = train_seed + DEV_SEED_OFFSET
@@ -301,7 +305,7 @@ def run_condition(data_dir, *, condition, policy, train_seed, eval_seed,
     ck = _load_checkpoint(checkpoint_path)
     if ck is None:
         runner = se.build_runner(data_dir, sensory_mode="egocentric",
-                                 retina_axis=retina_axis)
+                                 retina_axis=retina_axis, synapse_sign=synapse_sign)
         if condition == "inverted":
             se.invert_readout(runner)
         learner = CovarianceRPELearner(
@@ -389,6 +393,7 @@ def run_condition(data_dir, *, condition, policy, train_seed, eval_seed,
                    "recalibrate_after_dev": recalibrate_after_dev,
                    "visual_target_rate": visual_target_rate,
                    "noise_mode": noise_mode,
+                   "synapse_sign": synapse_sign,
                    "sensory_mode": "egocentric",
                    "retina_axis": retina_axis},
         "weights": {"mean_before": float(w0.mean()), "mean_after": float(w1.mean()),

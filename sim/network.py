@@ -25,6 +25,13 @@ FREQ_EMA_DECAY = 0.999
 FREQ_NORM_MAX_SCALE = 10.0
 FREQ_NORM_EPS = 1e-4
 TONIC_BIAS = 0.05
+# Neurotransmissores tratados como inibitorios com synapse_sign="nt", como em
+# Shiu et al. 2024 (Nature, modelo LIF do conectoma FlyWire): acetilcolina
+# excita, GABA e glutamato inibem. Os demais (histamina dos fotorreceptores,
+# dopamina, "unclear") ficam excitatorios. Simplificacao: no inseto real a
+# histamina dos fotorreceptores hiperpolariza L1-L3; aqui a entrada da retina
+# continua excitatoria, como em todos os Achados.
+INHIBITORY_NT = frozenset({"gaba", "glutamate"})
 
 
 class ConnectomeNetwork:
@@ -39,7 +46,7 @@ class ConnectomeNetwork:
     """
 
     def __init__(self, data_dir: str, *, prune_causal: bool = False, record_history: bool = True,
-                 retina_axis: str = "pca"):
+                 retina_axis: str = "pca", synapse_sign: str = "none"):
         neurons_path = os.path.join(data_dir, "neurons.parquet")
         edges_path = os.path.join(data_dir, "edges.parquet")
         neurons_df = pd.read_parquet(neurons_path)
@@ -97,6 +104,24 @@ class ConnectomeNetwork:
         post = self.edges_df["post"].map(self.body_id_to_idx).to_numpy()
         weight = self.edges_df["weight"].to_numpy(dtype=np.float64) * SYNAPSE_GAIN
         valid = ~(np.isnan(pre) | np.isnan(post))
+        if synapse_sign not in {"none", "nt"}:
+            raise ValueError(f"unknown synapse_sign: {synapse_sign}")
+        self.synapse_sign = synapse_sign
+        if synapse_sign == "nt":
+            # Sinal pelo neurotransmissor previsto do neuronio PRE-sinaptico
+            # (coluna `nt`; ver scripts/add_neurotransmitters.py).
+            if "nt" not in self.neurons_df.columns:
+                raise ValueError("synapse_sign='nt' exige a coluna `nt` em neurons.parquet "
+                                 "(rode scripts/add_neurotransmitters.py)")
+            nt = self.neurons_df["nt"].astype(str).str.lower().to_numpy()
+            sign = np.where(np.isin(nt, list(INHIBITORY_NT)), -1.0, 1.0)
+            pre_ok = np.where(valid, pre, 0).astype(np.int64)
+            weight = weight * np.where(valid, sign[pre_ok], 1.0)
+        self.inhibitory_idx = (
+            np.flatnonzero(np.isin(self.neurons_df["nt"].astype(str).str.lower().to_numpy(),
+                                   list(INHIBITORY_NT)))
+            if synapse_sign == "nt" else np.empty(0, dtype=np.int64)
+        )
         if not valid.all():
             bad_edges = int((~valid).sum())
             raise ValueError(
@@ -119,6 +144,9 @@ class ConnectomeNetwork:
             dtype=bool,
             count=len(pre),
         )
+        # A regra de recompensa mantem os pesos plasticos em [0, teto]: so
+        # sinapses excitatorias sao plasticas.
+        plastic_mask &= weight > 0
         self.plastic_pre = pre[plastic_mask]
         self.plastic_post = post[plastic_mask]
         self.plastic_data_idx = self._find_data_indices(self.plastic_pre, self.plastic_post)

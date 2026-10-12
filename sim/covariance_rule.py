@@ -160,7 +160,10 @@ class HomeostaticScaler:
         self.mean_decay = float(mean_decay)
         W = net.W
         rows = np.repeat(np.arange(net.n), np.diff(W.indptr))
-        self.entries = np.flatnonzero(np.isin(rows, np.asarray(post_idx)))
+        # So as entradas excitatorias sao escaladas (escalonamento sinaptico
+        # de sinapses excitatorias, Turrigiano et al. 1998). Sem sinapses
+        # inibitorias (synapse_sign="none"), sao todas.
+        self.entries = np.flatnonzero(np.isin(rows, np.asarray(post_idx)) & (W.data > 0))
         self.entry_post = rows[self.entries]
         self.post_mean = np.zeros(net.n, dtype=np.float64)
 

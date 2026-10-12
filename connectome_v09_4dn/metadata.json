@@ -23,5 +23,6 @@
     "target": "LC10a.*",
     "descending": "DNa10.*|GF|GiantFiber.*|DNp01.*",
     "dopaminergic": "PAM.*|PPL1.*"
-  }
+  },
+  "nt_source": "https://storage.googleapis.com/flyem-male-cns/v0.9/connectome-data/flat-connectome/body-neurotransmitters-male-cns-v0.9.feather"
 }
