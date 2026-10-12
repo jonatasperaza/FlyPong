@@ -146,6 +146,38 @@ def train(runner, learner, *, n_serves, train_seed, noise_std, reward_mode,
     return {"curve": curve, "train_hit_rate": hits / max(1, n_serves)}
 
 
+def calibrate_baseline(runner, noise_std, *, frames=400, seed=0):
+    """Zero do readout: media de (desce - sobe) com a bola parada no centro e o
+    ruido intrinseco `noise_std` nos descendentes. Nao usa recompensa nem
+    direcao; e a mesma ideia de FlyPongRunner._calibrate_motor_baseline, mas
+    com a rede no estado atual e com ruido."""
+    net = runner.net
+    rng = np.random.default_rng(seed + 31337)
+    stim = ball_to_photoreceptor_stimulus(HEIGHT / 2, WIDTH / 2, HEIGHT, WIDTH,
+                                          net.photoreceptor_positions)
+    external = np.zeros(net.n, dtype=np.float64)
+    accum = np.zeros(net.n, dtype=np.float64)
+    desc = net.descending_idx
+    diffs = []
+    saved_lr = netmod.PLASTIC_LR
+    netmod.PLASTIC_LR = 0.0
+    try:
+        net.reset()
+        for _ in range(frames):
+            accum.fill(0.0)
+            for _ in range(runner.substeps):
+                external.fill(0.0)
+                external[net.photoreceptor_idx] += stim
+                if noise_std > 0:
+                    external[desc] += rng.normal(0.0, noise_std, len(desc))
+                np.add(accum, net.step(external), out=accum)
+            diffs.append(accum[net.motor_down_idx].mean() - accum[net.motor_up_idx].mean())
+    finally:
+        netmod.PLASTIC_LR = saved_lr
+        net.reset()
+    return float(np.mean(diffs))
+
+
 def _save_checkpoint(path, obj):
     """Grava `obj` de forma atomica (arquivo temporario + rename)."""
     path = os.fspath(path)
@@ -188,7 +220,7 @@ def run_condition(data_dir, *, condition, policy, train_seed, eval_seed,
                   homeostasis_scope=DEFAULTS["homeostasis_scope"],
                   curve_every=0, curve_trials=100, verbose=True,
                   retina_axis="pca", checkpoint_path=None, checkpoint_every=50,
-                  dev_seed=None):
+                  dev_seed=None, recalibrate_after_dev=False):
     """Roda uma condicao do experimento.
 
     policy:
@@ -200,6 +232,11 @@ def run_condition(data_dir, *, condition, policy, train_seed, eval_seed,
       - "control_innate": a rede como carregada, sem nenhuma mudanca.
     Todas sao avaliadas igual: pesos congelados, mesmas seeds de saque e o
     mesmo ruido intrinseco `noise_std`.
+
+    `recalibrate_after_dev`: ao fim da fase de desenvolvimento, recalcula o
+    zero do readout (`motor_baseline_diff`) com a rede ja escalada e o mesmo
+    ruido intrinseco da avaliacao (bola parada no centro, sem recompensa).
+    A calibracao original e feita antes da homeostase, com a rede saturada.
 
     `dev_seed`: seed da fase de desenvolvimento. Padrao: train_seed +
     DEV_SEED_OFFSET (como em todos os Achados). Passar outro valor separa o
@@ -266,6 +303,8 @@ def run_condition(data_dir, *, condition, policy, train_seed, eval_seed,
                   resume=loop_state, checkpoint_every=checkpoint_every,
                   checkpoint=lambda st: save("dev", st))
         learner.homeostasis_rate = 0.0
+        if recalibrate_after_dev and policy != "control_innate":
+            runner.motor_baseline_diff = calibrate_baseline(runner, noise_std, seed=dev_seed)
         if policy == "trained":
             learner.eta = eta
         phase, loop_state = "train", None
@@ -288,6 +327,7 @@ def run_condition(data_dir, *, condition, policy, train_seed, eval_seed,
         "condition": condition,
         "train_seed": train_seed,
         "dev_seed": dev_seed,
+        "motor_baseline_diff": runner.motor_baseline_diff,
         **final,
         "train_hit_rate": tr["train_hit_rate"],
         "curve": tr["curve"],
@@ -296,6 +336,7 @@ def run_condition(data_dir, *, condition, policy, train_seed, eval_seed,
                    "elig_decay": elig_decay, "w_cap_factor": w_cap_factor,
                    "dev_serves": dev_serves, "homeostasis_rate": homeostasis_rate,
                    "target_rate": target_rate, "homeostasis_scope": homeostasis_scope,
+                   "recalibrate_after_dev": recalibrate_after_dev,
                    "sensory_mode": "egocentric",
                    "retina_axis": retina_axis},
         "weights": {"mean_before": float(w0.mean()), "mean_after": float(w1.mean()),
