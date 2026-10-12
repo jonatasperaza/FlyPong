@@ -44,13 +44,13 @@ def checkpoint_path(out: Path, condition: str, policy: str, eval_seed: int) -> P
 
 def _job(args):
     (data_dir, condition, policy, train_seed, eval_seed, trials, curve_every, axis,
-     scope, serves, ck_path) = args
+     scope, serves, ck_path, anneal) = args
     row = st.run_condition(
         data_dir, condition=condition, policy=policy, train_seed=train_seed,
         eval_seed=eval_seed, eval_trials=trials,
         curve_every=curve_every if policy == "trained" else 0, verbose=False,
         retina_axis=axis, homeostasis_scope=scope, n_serves=serves,
-        checkpoint_path=str(ck_path),
+        checkpoint_path=str(ck_path), dev_anneal_serves=anneal,
     )
     row["_checkpoint"] = str(ck_path)
     row["data_source"] = data_source(data_dir)
@@ -80,14 +80,15 @@ def data_tags(data_dir) -> tuple[str, str, str]:
 
 def origin(row: dict) -> tuple:
     """(origem dos dados, eixo da retina, escopo da homeostase, saques de
-    treino) de uma linha de resultado."""
+    treino, recozimento) de uma linha de resultado."""
     cfg = row.get("config", {})
     dataset_default = "male-cns:v1.0" if row.get("data_source") == "real" else "synthetic"
     return (str(row.get("data_source")), row.get("dataset", dataset_default),
             row.get("dn_set", "original"), row.get("input_set", "original"),
             cfg.get("retina_axis", "pca"),
             cfg.get("homeostasis_scope", "plastic"),
-            int(cfg.get("n_serves", st.DEFAULTS["n_serves"])))
+            int(cfg.get("n_serves", st.DEFAULTS["n_serves"])),
+            int(cfg.get("dev_anneal_serves", 0)))
 
 
 def load(path: Path) -> dict:
@@ -138,10 +139,15 @@ def main_cli():
                          "(exige retina_y; ver scripts/add_retina_coords.py)")
     ap.add_argument("--homeostasis-scope", choices=list(st.HOMEOSTASIS_SCOPES), default="plastic")
     ap.add_argument("--serves", type=int, default=st.DEFAULTS["n_serves"])
+    ap.add_argument("--dev-anneal-serves", type=int, default=0,
+                    help="recozimento da homeostase nos ultimos N saques do desenvolvimento "
+                         "(Achado 24)")
     ap.add_argument("--trials", type=int, default=se.DEFAULT_TRIALS)
     ap.add_argument("--curve-every", type=int, default=500)
     ap.add_argument("--workers", type=int, default=4)
     ap.add_argument("--summary-only", action="store_true")
+    ap.add_argument("--conditions", nargs="+", choices=list(CONDITIONS), default=list(CONDITIONS),
+                    help="condicoes a rodar, nesta ordem")
     args = ap.parse_args()
 
     if not (Path(args.data_dir) / "neurons.parquet").exists():
@@ -162,9 +168,12 @@ def main_cli():
         suffix += f"-{args.homeostasis_scope}"
     if args.serves != st.DEFAULTS["n_serves"]:
         suffix += f"-{args.serves}serves"
+    if args.dev_anneal_serves:
+        suffix += f"-anneal{args.dev_anneal_serves}"
     out = Path(args.out) if args.out else HERE / "docs" / f"achado-19-resultados-{source}{suffix}.jsonl"
     rows = load(out)
-    this = (source, dataset, dn_set, input_set, args.retina_axis, args.homeostasis_scope, args.serves)
+    this = (source, dataset, dn_set, input_set, args.retina_axis, args.homeostasis_scope,
+            args.serves, args.dev_anneal_serves)
     other = {origin(r) for r in rows.values()} - {this}
     if other:
         print(f"ERRO: {out} tem resultados de outra origem/eixo ({sorted(other)}); "
@@ -172,14 +181,15 @@ def main_cli():
         return 2
     print(f"[achado19] dados: {source} {dataset} dn={dn_set} in={input_set} ({args.data_dir}), "
           f"retina: {args.retina_axis}, "
-          f"homeostase: {args.homeostasis_scope}, saques: {args.serves}; "
+          f"homeostase: {args.homeostasis_scope}, saques: {args.serves}, "
+          f"recozimento: {args.dev_anneal_serves}; "
           f"resultados: {out}", flush=True)
     if not args.summary_only:
         jobs = [
             (args.data_dir, cond, pol, tr, ev, args.trials, args.curve_every,
              args.retina_axis, args.homeostasis_scope, args.serves,
-             checkpoint_path(out, cond, pol, ev))
-            for cond in CONDITIONS
+             checkpoint_path(out, cond, pol, ev), args.dev_anneal_serves)
+            for cond in args.conditions
             for pol in ("trained",) + st.POLICIES[1:]
             for tr, ev in zip(se.TRAIN_SEEDS, se.EVAL_SEEDS)
             if (cond, pol, ev) not in rows
