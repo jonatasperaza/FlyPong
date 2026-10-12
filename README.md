@@ -1656,6 +1656,79 @@ LC) na fase de desenvolvimento:
 A assimetria entre as condições desaparece. Com os dados ampliados, a
 fiação da condição normal chega ao nível do grafo sintético (89%).
 
+### Achado 22 (sem saturação: a rede chega a 82–84%, mas só numa seed; critérios principais não cumpridos)
+
+**Resumo:** com a homeostase em todo o sistema visual e a entrada dos LC
+completada, uma das seis seeds de treino (seed 1) aprende a jogar muito bem
+nas **duas** condições: **83,7% na invertida e 81,7% na normal**, contra
+~20–24% dos controles. É o melhor desempenho já medido no conectoma real.
+As outras cinco seeds ficam entre 15% e 39%. Os dois critérios principais,
+que pediam acerto acima dos controles em ≥ 5/6 seeds, **não** foram
+cumpridos. O ganho na média sobre o Achado 20 existe, mas vem quase todo
+dessa seed. Protocolo e critérios estão em `docs/achado-22-protocolo.md`.
+
+**Configurações** (male-cns:v0.9, 4 descendentes, retina por elevação, 1.500
+saques de treino e hiperparâmetros inalterados):
+- A: subgrafo ampliado (`--input-set achado21`) + `--homeostasis-scope
+  all_visual`;
+- B: subgrafo original + `all_visual`.
+
+**Resultados** (6 seeds de teste × 300 saques; IC95 de Wilson sobre os 1.800
+saques somados):
+
+| condição | configuração | treinada | controle homeostase | controle inato | seeds acima dos dois controles |
+|---|---|---:|---:|---:|---:|
+| invertida | A (ampliado) | **44,9%** [42,6; 47,2] | 25,0% | 26,0% | 3/6 |
+| invertida | B | 39,3% [37,1; 41,6] | 25,4% | 25,7% | 2/6 |
+| invertida | Achado 20 (só LC) | 36,6% [34,4; 38,8] | 26,7% | 25,7% | 3/6 |
+| normal | A (ampliado) | **37,3%** [35,1; 39,5] | 26,2% | 24,9% | 1/6 |
+| normal | B | 35,3% [33,2; 37,6] | 25,4% | 26,6% | 1/6 |
+| normal | Achado 20 (só LC) | 30,7% [28,6; 32,8] | 25,2% | 26,6% | 0/6 |
+
+Treinada em A, por seed de teste (1001–1006):
+- invertida: 38,0 / **83,7** / 38,7 / 33,3 / 39,0 / 36,7%;
+- normal: 32,3 / **81,7** / 38,7 / 30,7 / 25,7 / **14,7**%.
+
+**Critérios pré-registrados:**
+1. **Principal (normal, A, ≥ 5/6 seeds): não cumprido** (1/6).
+2. **Invertida (A, ≥ 5/6): não cumprido** (3/6).
+3. **Ganho sobre o Achado 20 (somado): cumprido nas duas condições.** Na
+   invertida, 44,9% [42,6; 47,2] contra 36,6% [34,4; 38,8]; na normal,
+   37,3% [35,1; 39,5] contra 30,7% [28,6; 32,8]. **Ressalva importante:** sem
+   a seed 1, A fica em 37,1% (invertida) e 28,4% (normal), contra 37,9% e
+   31,6% do Achado 20 sem a mesma seed. O ganho somado vem quase todo de uma
+   única seed.
+4. **Secundário (A × B):** na invertida, A supera B sem sobreposição de IC
+   (44,9% contra 39,3%); na normal, os ICs se sobrepõem.
+
+**Leitura honesta:**
+- **O conectoma real, depois de tirada a saturação, comporta aprendizado
+  forte.** A seed 1 chega a 82–84% nas duas condições em A, e a 69–71% em B.
+  É a mesma seed nas duas configurações, nas duas condições, e partindo de
+  controles em ~20–24%. Isso não é ruído de avaliação: o IC da seed 1 é
+  [0,77; 0,87].
+- **Mas o aprendizado não é confiável.** As outras seeds ficam pouco acima
+  dos controles, e uma (seed 5, condição normal) termina **abaixo** deles
+  (14,7%). Na normal, a curva média sobe até 41% com 500 saques e cai para
+  36% com 1.500, sinal de instabilidade.
+- **Hipótese principal para o próximo passo:** o que distingue a seed 1 é o
+  estado em que a rede sai da fase de desenvolvimento, ou a sequência de
+  treino? A fase de desenvolvimento depende da seed (seed de treino +
+  500.000). Um teste de cruzamento (desenvolvimento de uma seed com o treino
+  de outra), só com seeds de treino e validação, separa as duas
+  possibilidades.
+- **Infraestrutura:** para este experimento, `run_condition` passou a gravar
+  checkpoints a cada 50 saques (`runs/checkpoints/`). O container de nuvem
+  reiniciava várias vezes durante as execuções. Um teste
+  (`tests/test_checkpoint.py`) garante que retomar de checkpoint dá resultado
+  idêntico ao de uma execução contínua.
+
+Resultados por seed:
+- `docs/achado-19-resultados-real-male-cns-v0.9-in-achado21-elevation-all_visual-1500serves.jsonl`
+  (A);
+- `docs/achado-19-resultados-real-male-cns-v0.9-elevation-all_visual-1500serves.jsonl`
+  (B).
+
 ## Limitações conhecidas
 
 - (Histórico, corrigido no Achado 9) O pool `descending` original tinha só
