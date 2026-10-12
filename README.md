@@ -1729,6 +1729,75 @@ Resultados por seed:
 - `docs/achado-19-resultados-real-male-cns-v0.9-elevation-all_visual-1500serves.jsonl`
   (B).
 
+### Achado 23 (o desenvolvimento decide quem aprende; nenhuma correção testada torna o aprendizado confiável)
+
+**Resumo:** diagnóstico, não teste de hipótese. Tudo foi feito na seed de
+validação 2001, condição normal, configuração A do Achado 22. As seeds de
+teste (1001–1006) não foram usadas. Três resultados:
+1. **O que separa a seed que aprende das outras é a fase de desenvolvimento,
+   não a sequência de treino.** O desenvolvimento da seed 1 seguido do
+   treino da seed 3 chega a 82,7%. O desenvolvimento da seed 3 seguido do
+   treino da seed 1 fica em 30,3%.
+2. **As redes que falham saem do desenvolvimento com os LC densos e os
+   descendentes mais ativos**, e com um sinal comum nos quatro descendentes.
+   Esse sinal está ligado ao lado da bola, mas se cancela na diferença
+   direita − esquerda que o readout usa.
+3. **Nenhuma das três correções testadas resolve.** Cada uma só muda quais
+   seeds dão certo: recalibrar o baseline, dobrar o desenvolvimento e impor
+   LC esparsos.
+
+**Cruzamento** (1.500 saques de treino; acerto final em 300 saques, curva
+em 100 saques a cada 500):
+
+| desenvolvimento | treino | acerto final | curva (0/500/1000/1500) |
+|---|---|---:|---|
+| seed 1 | seed 1 | **83,0%** | 24 / 79 / 82 / 84% |
+| seed 1 | seed 3 | **82,7%** | 24 / 78 / 85 / 86% |
+| seed 3 | seed 1 | 30,3% | 25 / 23 / 27 / 26% |
+| seed 3 | seed 3 | 27,7% | 25 / 22 / 26 / 22% |
+
+**Estado ao fim do desenvolvimento** (`scripts/diagnostics/dev_state.py`,
+saída em `docs/diagnostico-desenvolvimento.txt`):
+- seed 1: descendentes a 0,15–0,24 spike/frame, sem viés na posição central
+  (diferença 0,000). Os LC são esparsos: taxa ~0,01 por passo e 37–62%
+  silenciosos. A decodificação do lado da bola nos LC fica em 85–89%. Cada
+  descendente tem correlação ≈ 0 com o lado da bola;
+- seeds que falham (2, 3, 4, 5, 42): descendentes a 0,3–0,66 spike/frame,
+  com viés para "sobe" (−0,03 a −0,25). Na seed 3, os LC são densos (taxa
+  ~0,09 por passo, quase nenhum silencioso) e decodificam até melhor
+  (91–93%). Os quatro descendentes têm a mesma correlação negativa com "bola
+  acima" (−0,11 a −0,16), e ela se cancela na diferença direita − esquerda.
+
+A informação chega até os LC nas duas redes. O que muda é como ela chega aos
+descendentes. Na seed 1, cada descendente começa neutro e a regra pode
+separá-los. Na seed 3, um sinal comum domina, e a perturbação de nó com
+dopamina global não consegue quebrar a simetria entre os lados.
+
+**Correções testadas** (mesma seed de validação; `docs/cruzamento-correcoes.jsonl`,
+`docs/esparso.jsonl`):
+
+| correção | seed 1 | seed 3 | seed 5 | seed 42 |
+|---|---:|---:|---:|---:|
+| nenhuma (cruzamento acima) | 83,0% | 27,7% | — | — |
+| recalibrar o baseline após o desenvolvimento | — | 27,7% | 19,7% | — |
+| desenvolvimento de 600 saques | — | 34,7% | **46,0%** (pico 55%) | — |
+| taxa alvo visual 0,05 (LC esparsos) | 25,3% | **47,7%** | 21,7% | 23,0% |
+
+- Recalibrar não muda nada. O viés de baseline não é a causa.
+- O desenvolvimento mais longo ajuda a seed 5, que vai de 14,7% no teste do
+  Achado 22 para 46,0% na validação. Na seed 3, o ganho é pequeno.
+- Impor LC esparsos não reproduz a seed 1. A seed 3 passa a aprender
+  (47,7%), mas a seed 1, que aprendia, **perde** o aprendizado (25,3%). A
+  esparsidade sozinha não é a chave.
+
+**Leitura honesta:** o conectoma real comporta aprendizado forte (83%), mas
+hoje ele depende de uma "loteria" no estado inicial. Mudar qualquer detalhe
+do desenvolvimento muda quais seeds ganham, mas não aumenta quantas ganham.
+Com uma seed de validação e quatro seeds de treino, nada aqui é estatística
+de teste. Antes de pré-registrar um novo protocolo nas seeds 1001–1006, é
+preciso achar, na validação, uma mudança que funcione na maioria das seeds
+de treino.
+
 ## Limitações conhecidas
 
 - (Histórico, corrigido no Achado 9) O pool `descending` original tinha só

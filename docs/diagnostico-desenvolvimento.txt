@@ -1,0 +1,26 @@
+# Achado 23: estado da rede apos o desenvolvimento (scripts/diagnostics/dev_state.py e versao anterior)
+seed 1: baseline calibrado=+0.000 | diff centro sem ruido=+0.000 com ruido=-0.007 | taxas DN (ruido) [0.18 0.15 0.22 0.24] | acoes sobe/parado/desce = 0.25/0.50/0.25
+seed 2: baseline calibrado=+0.000 | diff centro sem ruido=-0.247 com ruido=-0.207 | taxas DN (ruido) [0.53 0.16 0.3  0.25] | acoes sobe/parado/desce = 0.34/0.44/0.22
+seed 3: baseline calibrado=+0.000 | diff centro sem ruido=-0.125 com ruido=-0.052 | taxas DN (ruido) [0.66 0.43 0.46 0.58] | acoes sobe/parado/desce = 0.34/0.41/0.24
+seed 4: baseline calibrado=+0.000 | diff centro sem ruido=-0.060 com ruido=-0.028 | taxas DN (ruido) [0.42 0.34 0.31 0.34] | acoes sobe/parado/desce = 0.29/0.46/0.25
+seed 5: baseline calibrado=+0.000 | diff centro sem ruido=-0.165 com ruido=-0.087 | taxas DN (ruido) [0.55 0.39 0.4  0.38] | acoes sobe/parado/desce = 0.40/0.40/0.20
+seed 42: baseline calibrado=+0.000 | diff centro sem ruido=-0.085 com ruido=-0.007 | taxas DN (ruido) [0.55 0.41 0.38 0.5 ] | acoes sobe/parado/desce = 0.31/0.41/0.28
+
+seed 1:
+  object taxa media=0.015 silenciosos=0.37 decod=0.854
+  LC10a  taxa media=0.008 silenciosos=0.58 decod=0.849
+  LC10c  taxa media=0.010 silenciosos=0.62 decod=0.893
+  DN     taxa media=0.059 silenciosos=0.00 decod=0.496
+  DNp01(GF)_R  peso plastico medio=0.075 soma=10.9 taxa=0.23/frame corr(contagem,acima)=+0.061
+  DNp01(GF)_L  peso plastico medio=0.040 soma=6.6 taxa=0.25/frame corr(contagem,acima)=+0.029
+  DNa10_R      peso plastico medio=0.044 soma=4.2 taxa=0.25/frame corr(contagem,acima)=+0.011
+  DNa10_L      peso plastico medio=0.088 soma=8.0 taxa=0.22/frame corr(contagem,acima)=-0.017
+seed 3:
+  object taxa media=0.081 silenciosos=0.09 decod=0.912
+  LC10a  taxa media=0.090 silenciosos=0.00 decod=0.926
+  LC10c  taxa media=0.093 silenciosos=0.04 decod=0.928
+  DN     taxa media=0.083 silenciosos=0.00 decod=0.587
+  DNp01(GF)_R  peso plastico medio=0.102 soma=14.9 taxa=0.36/frame corr(contagem,acima)=-0.144
+  DNp01(GF)_L  peso plastico medio=0.044 soma=7.3 taxa=0.32/frame corr(contagem,acima)=-0.113
+  DNa10_R      peso plastico medio=0.053 soma=5.1 taxa=0.34/frame corr(contagem,acima)=-0.133
+  DNa10_L      peso plastico medio=0.095 soma=8.5 taxa=0.31/frame corr(contagem,acima)=-0.160
