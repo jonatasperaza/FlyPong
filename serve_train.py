@@ -220,7 +220,8 @@ def run_condition(data_dir, *, condition, policy, train_seed, eval_seed,
                   homeostasis_scope=DEFAULTS["homeostasis_scope"],
                   curve_every=0, curve_trials=100, verbose=True,
                   retina_axis="pca", checkpoint_path=None, checkpoint_every=50,
-                  dev_seed=None, recalibrate_after_dev=False):
+                  dev_seed=None, recalibrate_after_dev=False,
+                  visual_target_rate=None):
     """Roda uma condicao do experimento.
 
     policy:
@@ -232,6 +233,12 @@ def run_condition(data_dir, *, condition, policy, train_seed, eval_seed,
       - "control_innate": a rede como carregada, sem nenhuma mudanca.
     Todas sao avaliadas igual: pesos congelados, mesmas seeds de saque e o
     mesmo ruido intrinseco `noise_std`.
+
+    `visual_target_rate`: taxa alvo (spikes/frame) da homeostase das camadas
+    visuais (HomeostaticScaler). Padrao: a mesma `target_rate` dos
+    descendentes. Diagnostico pos-Achado 22: a rede que aprende (seed 1) saiu
+    do desenvolvimento com os LC esparsos (~0,04 spike/frame, 40-60%
+    silenciosos), as que nao aprendem com LC densos perto de 0,3.
 
     `recalibrate_after_dev`: ao fim da fase de desenvolvimento, recalcula o
     zero do readout (`motor_baseline_diff`) com a rede ja escalada e o mesmo
@@ -274,8 +281,9 @@ def run_condition(data_dir, *, condition, policy, train_seed, eval_seed,
                 # (Achado 21).
                 scaled = np.concatenate([net.role_idx.get(k, np.empty(0, dtype=np.int64))
                                          for k in ("interneuron", "motion", "object", "target")])
-            scaler = HomeostaticScaler(net, scaled, rate=homeostasis_rate,
-                                       target_rate=target_rate)
+            scaler = HomeostaticScaler(
+                net, scaled, rate=homeostasis_rate,
+                target_rate=target_rate if visual_target_rate is None else visual_target_rate)
         phase, loop_state, tr, elapsed_before = "dev", None, {"curve": [], "train_hit_rate": None}, 0.0
     else:
         runner, learner, scaler, w0 = ck["runner"], ck["learner"], ck["scaler"], ck["w0"]
@@ -337,6 +345,7 @@ def run_condition(data_dir, *, condition, policy, train_seed, eval_seed,
                    "dev_serves": dev_serves, "homeostasis_rate": homeostasis_rate,
                    "target_rate": target_rate, "homeostasis_scope": homeostasis_scope,
                    "recalibrate_after_dev": recalibrate_after_dev,
+                   "visual_target_rate": visual_target_rate,
                    "sensory_mode": "egocentric",
                    "retina_axis": retina_axis},
         "weights": {"mean_before": float(w0.mean()), "mean_after": float(w1.mean()),
