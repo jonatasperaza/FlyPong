@@ -187,7 +187,8 @@ def run_condition(data_dir, *, condition, policy, train_seed, eval_seed,
                   target_rate=DEFAULTS["target_rate"],
                   homeostasis_scope=DEFAULTS["homeostasis_scope"],
                   curve_every=0, curve_trials=100, verbose=True,
-                  retina_axis="pca", checkpoint_path=None, checkpoint_every=50):
+                  retina_axis="pca", checkpoint_path=None, checkpoint_every=50,
+                  dev_seed=None):
     """Roda uma condicao do experimento.
 
     policy:
@@ -199,7 +200,13 @@ def run_condition(data_dir, *, condition, policy, train_seed, eval_seed,
       - "control_innate": a rede como carregada, sem nenhuma mudanca.
     Todas sao avaliadas igual: pesos congelados, mesmas seeds de saque e o
     mesmo ruido intrinseco `noise_std`.
+
+    `dev_seed`: seed da fase de desenvolvimento. Padrao: train_seed +
+    DEV_SEED_OFFSET (como em todos os Achados). Passar outro valor separa o
+    estado em que a rede sai do desenvolvimento da sequencia de treino.
     """
+    if dev_seed is None:
+        dev_seed = train_seed + DEV_SEED_OFFSET
     if policy not in POLICIES:
         raise ValueError(f"unknown policy: {policy}")
     if homeostasis_scope not in HOMEOSTASIS_SCOPES:
@@ -252,7 +259,7 @@ def run_condition(data_dir, *, condition, policy, train_seed, eval_seed,
     if phase == "dev":
         if policy != "control_innate" and dev_serves > 0:
             train(runner, learner, n_serves=dev_serves, on_frame=on_frame,
-                  train_seed=train_seed + DEV_SEED_OFFSET, noise_std=noise_std,
+                  train_seed=dev_seed, noise_std=noise_std,
                   # eta = 0 aqui, entao a recompensa nao importa; "dense" so
                   # garante que a homeostase atualiza a cada frame.
                   reward_mode="dense",
@@ -280,6 +287,7 @@ def run_condition(data_dir, *, condition, policy, train_seed, eval_seed,
         "policy": policy,
         "condition": condition,
         "train_seed": train_seed,
+        "dev_seed": dev_seed,
         **final,
         "train_hit_rate": tr["train_hit_rate"],
         "curve": tr["curve"],
