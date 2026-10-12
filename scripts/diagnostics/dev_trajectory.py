@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Achado 24: trajetoria da atividade durante a fase de desenvolvimento.
 
-Uso: python scripts/diagnostics/dev_trajectory.py <seed de treino> [saques] [synapse_sign]
+Uso: python scripts/diagnostics/dev_trajectory.py <seed de treino> [saques] [synapse_sign] [taxa alvo visual]
 
 Repete a fase de desenvolvimento da configuracao A (connectome_v09_in21,
 all_visual, mesmos parametros e seeds de run_condition) e registra, a cada
@@ -24,6 +24,7 @@ from sim.covariance_rule import CovarianceRPELearner, HomeostaticScaler
 seed = int(sys.argv[1])
 n_serves = int(sys.argv[2]) if len(sys.argv) > 2 else 300
 sign = sys.argv[3] if len(sys.argv) > 3 else "none"
+vis_target = float(sys.argv[4]) if len(sys.argv) > 4 else None
 d = st.DEFAULTS
 r = se.build_runner(str(HERE / "connectome_v09_in21"), sensory_mode="egocentric",
                     retina_axis="elevation", synapse_sign=sign)
@@ -31,11 +32,13 @@ net = r.net
 learner = CovarianceRPELearner(net, eta=0.0, elig_decay=d["elig_decay"], w_cap_factor=d["w_cap_factor"],
                                homeostasis_rate=d["homeostasis_rate"], target_rate=d["target_rate"])
 vis = np.concatenate([net.role_idx[k] for k in ("interneuron", "motion", "object", "target")])
-scaler = HomeostaticScaler(net, vis, rate=d["homeostasis_rate"], target_rate=d["target_rate"])
+scaler = HomeostaticScaler(net, vis, rate=d["homeostasis_rate"],
+                           target_rate=d["target_rate"] if vis_target is None else vis_target)
 lc = np.concatenate([net.object_idx, net.target_idx])
 inter = net.role_idx["interneuron"]
 desc = net.descending_idx
-out = HERE / "runs" / "dev_trajectory" / f"{seed}_{sign}.tsv"
+tag = "" if vis_target is None else f"_vt{vis_target:g}"
+out = HERE / "runs" / "dev_trajectory" / f"{seed}_{sign}{tag}.tsv"
 out.parent.mkdir(parents=True, exist_ok=True)
 f = open(out, "w")
 f.write("saque\tinterneuronio\tLC\tDN\tfrac_explosao\tframes\n")

@@ -57,7 +57,7 @@ def train(runner, learner, *, n_serves, train_seed, noise_std, reward_mode,
           elig_mode="covariance", curve_every=0, curve_seed=None, curve_trials=100,
           curve_noise=0.0, log=None, on_frame=None,
           resume=None, checkpoint=None, checkpoint_every=50,
-          noise_mode="independent"):
+          noise_mode="independent", on_serve=None):
     """Treina `learner` em `n_serves` saques. Devolve a curva de avaliacao
     (lista de dicts) se `curve_every` > 0.
 
@@ -73,6 +73,9 @@ def train(runner, learner, *, n_serves, train_seed, noise_std, reward_mode,
     par direita/esquerda do mesmo tipo e injeta +xi no lado direito e -xi no
     esquerdo: a exploracao fica toda na diferenca direita - esquerda, que e o
     que o readout le (Achado 23).
+
+    `on_serve(k)`, se dado, e chamado no inicio de cada saque k (depois do
+    checkpoint), inclusive ao retomar.
     """
     if noise_mode not in NOISE_MODES:
         raise ValueError(f"unknown noise_mode: {noise_mode}")
@@ -104,6 +107,8 @@ def train(runner, learner, *, n_serves, train_seed, noise_std, reward_mode,
                 curve.append({"serves": k, **se.evaluate_network(runner, curve_trials, curve_seed, curve_noise)})
                 if log:
                     log(f"  serves={k:5d} acerto={curve[-1]['hit_rate']:.3f}")
+            if on_serve is not None:
+                on_serve(k)
             se.serve(game, rng)
             net.reset()
             learner.reset_traces()
@@ -260,7 +265,7 @@ def run_condition(data_dir, *, condition, policy, train_seed, eval_seed,
                   retina_axis="pca", checkpoint_path=None, checkpoint_every=50,
                   dev_seed=None, recalibrate_after_dev=False,
                   visual_target_rate=None, noise_mode="independent",
-                  synapse_sign="none"):
+                  synapse_sign="none", dev_anneal_serves=0):
     """Roda uma condicao do experimento.
 
     policy:
@@ -294,6 +299,11 @@ def run_condition(data_dir, *, condition, policy, train_seed, eval_seed,
 
     `synapse_sign`: "none" (todas as sinapses excitatorias, como ate o Achado
     23) ou "nt" (GABA e glutamato inibitorios; ver sim/network.py).
+
+    `dev_anneal_serves`: nos ultimos N saques do desenvolvimento, a taxa das
+    duas homeostases cai linearmente ate zero (recozimento). Diagnostico do
+    Achado 24: com a taxa fixa, a rede oscila entre saques calmos e saques
+    em explosao, e o estado final depende dos ultimos saques.
     """
     if dev_seed is None:
         dev_seed = train_seed + DEV_SEED_OFFSET
@@ -347,6 +357,14 @@ def run_condition(data_dir, *, condition, policy, train_seed, eval_seed,
         })
 
     on_frame = scaler.update if scaler is not None else None
+
+    def anneal(k):
+        left = dev_serves - k
+        f = 1.0 if left > dev_anneal_serves else left / dev_anneal_serves
+        learner.homeostasis_rate = homeostasis_rate * f
+        if scaler is not None:
+            scaler.rate = homeostasis_rate * f
+
     if phase == "dev":
         if policy != "control_innate" and dev_serves > 0:
             train(runner, learner, n_serves=dev_serves, on_frame=on_frame,
@@ -355,7 +373,8 @@ def run_condition(data_dir, *, condition, policy, train_seed, eval_seed,
                   # garante que a homeostase atualiza a cada frame.
                   reward_mode="dense",
                   resume=loop_state, checkpoint_every=checkpoint_every,
-                  checkpoint=lambda st: save("dev", st))
+                  checkpoint=lambda st: save("dev", st),
+                  on_serve=anneal if dev_anneal_serves > 0 else None)
         learner.homeostasis_rate = 0.0
         if recalibrate_after_dev and policy != "control_innate":
             runner.motor_baseline_diff = calibrate_baseline(runner, noise_std, seed=dev_seed)
@@ -394,6 +413,7 @@ def run_condition(data_dir, *, condition, policy, train_seed, eval_seed,
                    "visual_target_rate": visual_target_rate,
                    "noise_mode": noise_mode,
                    "synapse_sign": synapse_sign,
+                   "dev_anneal_serves": dev_anneal_serves,
                    "sensory_mode": "egocentric",
                    "retina_axis": retina_axis},
         "weights": {"mean_before": float(w0.mean()), "mean_after": float(w1.mean()),
