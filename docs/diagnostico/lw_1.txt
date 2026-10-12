@@ -1,0 +1,7 @@
+runs/checkpoints/keep/orig1.pkl: 865 frames; mudanca media |dw|=1.331 (peso medio 0.061)
+  DNp01(GF)_R  grupo=sobe n_sinapses=146 soma w0=   10.8 soma dw= +306.3 corr(dw, seletividade)=-0.864 taxa=0.22->0.45 corr(contagem, bola abaixo)=-0.018->-0.435
+  DNp01(GF)_L  grupo=desce n_sinapses=165 soma w0=    6.9 soma dw= +264.1 corr(dw, seletividade)=+0.520 taxa=0.21->0.54 corr(contagem, bola abaixo)=-0.032->+0.185
+  DNa10_R      grupo=sobe n_sinapses= 97 soma w0=    4.1 soma dw=  +17.5 corr(dw, seletividade)=-0.997 taxa=0.25->0.28 corr(contagem, bola abaixo)=-0.009->-0.063
+  DNa10_L      grupo=desce n_sinapses= 90 soma w0=    8.6 soma dw=  +68.5 corr(dw, seletividade)=+0.862 taxa=0.23->0.27 corr(contagem, bola abaixo)=-0.009->+0.038
+  seletividade dos LC pre-sinapticos: media |sel|=0.068 taxa media=0.029/frame; fracao com |sel|>0,1: 0.25
+  LC que preferem bola abaixo (sel>0,05): 0.04; acima (sel<-0,05): 0.28

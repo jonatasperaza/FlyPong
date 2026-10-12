@@ -24,6 +24,11 @@ HERE = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(HERE))
 import serve_eval as se
 import serve_train as st
+import sim.network as netmod
+
+# A regra de plasticidade original (sim/network.py) sobrescreve os pesos
+# plasticos sempre que ha dopamina; train() e evaluate_network() a desligam.
+netmod.PLASTIC_LR = 0.0
 from game.motor_read import read_motor_action
 from game.pong import PADDLE_H, HEIGHT, WIDTH
 from game.sensory_map import ball_to_photoreceptor_stimulus as bs

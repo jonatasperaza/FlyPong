@@ -1,0 +1,12 @@
+dev1_anneal100_vt0.05: explosao=0.00 taxa LC=0.000/frame | preferem abaixo=0.00 acima=0.00 | sel media=+0.001
+dev1: explosao=0.00 taxa LC=0.029/frame | preferem abaixo=0.04 acima=0.28 | sel media=-0.058
+dev1_anneal100: explosao=0.10 taxa LC=0.100/frame | preferem abaixo=0.57 acima=0.26 | sel media=+0.055
+dev3: explosao=0.78 taxa LC=0.459/frame | preferem abaixo=0.93 acima=0.00 | sel media=+0.567
+dev3_anneal100_vt0.05: explosao=0.00 taxa LC=0.000/frame | preferem abaixo=0.00 acima=0.00 | sel media=+0.000
+dev3_anneal100: explosao=0.25 taxa LC=0.183/frame | preferem abaixo=0.69 acima=0.26 | sel media=+0.118
+dev42: explosao=0.67 taxa LC=0.295/frame | preferem abaixo=0.83 acima=0.11 | sel media=+0.363
+dev42_anneal100: explosao=0.22 taxa LC=0.101/frame | preferem abaixo=0.15 acima=0.65 | sel media=-0.174
+dev42_anneal100_vt0.05: explosao=0.00 taxa LC=0.000/frame | preferem abaixo=0.00 acima=0.00 | sel media=+0.000
+dev5: explosao=0.49 taxa LC=0.126/frame | preferem abaixo=0.00 acima=0.78 | sel media=-0.292
+dev5_anneal100_vt0.05: explosao=0.00 taxa LC=0.000/frame | preferem abaixo=0.00 acima=0.00 | sel media=+0.000
+dev5_anneal100: explosao=0.17 taxa LC=0.140/frame | preferem abaixo=0.43 acima=0.43 | sel media=-0.035
