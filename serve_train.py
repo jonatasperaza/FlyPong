@@ -56,7 +56,8 @@ def _distance(game):
 def train(runner, learner, *, n_serves, train_seed, noise_std, reward_mode,
           elig_mode="covariance", curve_every=0, curve_seed=None, curve_trials=100,
           curve_noise=0.0, log=None, on_frame=None,
-          resume=None, checkpoint=None, checkpoint_every=50):
+          resume=None, checkpoint=None, checkpoint_every=50,
+          noise_mode="independent"):
     """Treina `learner` em `n_serves` saques. Devolve a curva de avaliacao
     (lista de dicts) se `curve_every` > 0.
 
@@ -66,7 +67,15 @@ def train(runner, learner, *, n_serves, train_seed, noise_std, reward_mode,
     dict em `resume` continua o laco exatamente do mesmo ponto: o resultado e
     identico ao de uma execucao sem interrupcao (o estado da rede e do
     aprendiz e salvo junto, por quem chama).
+
+    `noise_mode`: "independent" (padrao) sorteia o ruido de exploracao de
+    cada descendente independentemente. "antisymmetric" sorteia um valor por
+    par direita/esquerda do mesmo tipo e injeta +xi no lado direito e -xi no
+    esquerdo: a exploracao fica toda na diferenca direita - esquerda, que e o
+    que o readout le (Achado 23).
     """
+    if noise_mode not in NOISE_MODES:
+        raise ValueError(f"unknown noise_mode: {noise_mode}")
     net = runner.net
     if resume is None:
         rng = random.Random(train_seed)
@@ -82,6 +91,8 @@ def train(runner, learner, *, n_serves, train_seed, noise_std, reward_mode,
     accum = np.zeros(net.n, dtype=np.float64)
     noise_sum = np.zeros(net.n, dtype=np.float64)
     desc = net.descending_idx
+    if noise_mode == "antisymmetric":
+        pair_r, pair_l = antisymmetric_pairs(net)
     saved_lr = netmod.PLASTIC_LR
     netmod.PLASTIC_LR = 0.0  # a regra original fica desligada
     try:
@@ -106,7 +117,13 @@ def train(runner, learner, *, n_serves, train_seed, noise_std, reward_mode,
                 for _ in range(runner.substeps):
                     external.fill(0.0)
                     external[net.photoreceptor_idx] += stim
-                    if noise_std > 0:
+                    if noise_std > 0 and noise_mode == "antisymmetric":
+                        xi = noise_rng.normal(0.0, noise_std, len(pair_r))
+                        external[pair_r] += xi
+                        external[pair_l] -= xi
+                        noise_sum[pair_r] += xi
+                        noise_sum[pair_l] -= xi
+                    elif noise_std > 0:
                         xi = noise_rng.normal(0.0, noise_std, len(desc))
                         external[desc] += xi
                         noise_sum[desc] += xi
@@ -144,6 +161,27 @@ def train(runner, learner, *, n_serves, train_seed, noise_std, reward_mode,
         netmod.PLASTIC_LR = saved_lr
         net.reset()
     return {"curve": curve, "train_hit_rate": hits / max(1, n_serves)}
+
+
+NOISE_MODES = ("independent", "antisymmetric")
+
+
+def antisymmetric_pairs(net):
+    """Pares (direita, esquerda) de descendentes do mesmo tipo, nos grupos do
+    readout (motor_up_idx = lado R, motor_down_idx = lado L). Exige que cada
+    tipo tenha o mesmo numero de neuronios nos dois lados."""
+    types = net.neurons_df["type"].astype(str).to_numpy()
+    right, left = [], []
+    for t in sorted({types[i] for i in net.motor_up_idx}):
+        r = [i for i in net.motor_up_idx if types[i] == t]
+        l = [i for i in net.motor_down_idx if types[i] == t]
+        if len(r) != len(l):
+            raise ValueError(f"tipo {t}: {len(r)} descendente(s) R e {len(l)} L; sem pareamento")
+        right += r
+        left += l
+    if len(right) != len(net.motor_up_idx) or len(left) != len(net.motor_down_idx):
+        raise ValueError("descendentes sem par do mesmo tipo no outro lado")
+    return np.array(right, dtype=np.int64), np.array(left, dtype=np.int64)
 
 
 def calibrate_baseline(runner, noise_std, *, frames=400, seed=0):
@@ -221,7 +259,7 @@ def run_condition(data_dir, *, condition, policy, train_seed, eval_seed,
                   curve_every=0, curve_trials=100, verbose=True,
                   retina_axis="pca", checkpoint_path=None, checkpoint_every=50,
                   dev_seed=None, recalibrate_after_dev=False,
-                  visual_target_rate=None):
+                  visual_target_rate=None, noise_mode="independent"):
     """Roda uma condicao do experimento.
 
     policy:
@@ -248,6 +286,10 @@ def run_condition(data_dir, *, condition, policy, train_seed, eval_seed,
     `dev_seed`: seed da fase de desenvolvimento. Padrao: train_seed +
     DEV_SEED_OFFSET (como em todos os Achados). Passar outro valor separa o
     estado em que a rede sai do desenvolvimento da sequencia de treino.
+
+    `noise_mode`: estrutura do ruido de exploracao so na fase de TREINO (ver
+    `train`). O desenvolvimento e a avaliacao usam sempre ruido independente,
+    entao o estado pos-desenvolvimento nao muda.
     """
     if dev_seed is None:
         dev_seed = train_seed + DEV_SEED_OFFSET
@@ -324,7 +366,7 @@ def run_condition(data_dir, *, condition, policy, train_seed, eval_seed,
                        curve_every=curve_every,
                        curve_seed=eval_seed if curve_every else None,
                        curve_trials=curve_trials, curve_noise=noise_std,
-                       log=print if verbose else None,
+                       log=print if verbose else None, noise_mode=noise_mode,
                        resume=loop_state, checkpoint_every=checkpoint_every,
                        checkpoint=lambda st: save("train", st))
         phase = "final"
@@ -346,6 +388,7 @@ def run_condition(data_dir, *, condition, policy, train_seed, eval_seed,
                    "target_rate": target_rate, "homeostasis_scope": homeostasis_scope,
                    "recalibrate_after_dev": recalibrate_after_dev,
                    "visual_target_rate": visual_target_rate,
+                   "noise_mode": noise_mode,
                    "sensory_mode": "egocentric",
                    "retina_axis": retina_axis},
         "weights": {"mean_before": float(w0.mean()), "mean_after": float(w1.mean()),
