@@ -1,0 +1,1 @@
+seed 3 ruido 6 recozimento 100 alvo visual 0.05: explosao=0.05 frames=4069 acerto=0.42 | d media=+0.033 dp=0.430 | parado=0.50 sobe=0.23 desce=0.27 | corr(ruido,d)=+0.443 corr(ruido,recompensa)=-0.054 | corr(lado da bola abaixo, d)=+0.070

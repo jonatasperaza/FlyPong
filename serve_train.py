@@ -393,6 +393,9 @@ def run_condition(data_dir, *, condition, policy, train_seed, eval_seed,
                        resume=loop_state, checkpoint_every=checkpoint_every,
                        checkpoint=lambda st: save("train", st))
         phase = "final"
+        # Rede treinada fica no checkpoint ate quem chama apaga-lo (permite
+        # analisar os pesos depois; retomar daqui so refaz a avaliacao).
+        save("final", None)
     final = se.evaluate_network(runner, eval_trials, eval_seed, noise_std)
     w1 = runner.net.W.data[runner.net.plastic_data_idx]
     return {
