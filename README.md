@@ -1991,8 +1991,10 @@ saídas em `docs/diagnostico/`):
   para Pong, nem separa o papel da retinotopia do de outras propriedades.
   Um embaralhamento que preserve a retinotopia, mas destrua o resto, seria o
   próximo controle.
-- **Um único embaralhamento** nas duas condições. A réplica com o seed 1 (só
-  a treinada, condição normal) está registrada abaixo.
+- **Réplica com um segundo embaralhamento** (seed 1, `connectome_v09_in21_shuf1`;
+  só a treinada, condição normal): 25,0 / 20,7 / 30,0 / 29,0 / 25,0 / 25,3%,
+  somado **25,8% [23,9; 27,9]**. É o mesmo resultado do seed 0 e continua
+  muito abaixo do conectoma real (58,2% [55,9; 60,5]).
 
 ## Limitações conhecidas
 
