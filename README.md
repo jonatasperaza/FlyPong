@@ -1798,7 +1798,7 @@ de teste. Antes de pré-registrar um novo protocolo nas seeds 1001–1006, é
 preciso achar, na validação, uma mudança que funcione na maioria das seeds
 de treino.
 
-### Achado 24 (a loteria do desenvolvimento é uma rede biestável; o recozimento da homeostase torna o aprendizado confiável na validação)
+### Achado 24 (aprendizado confiável no conectoma real: 6/6 seeds de teste nas duas condições, 58% contra ~25% dos controles)
 
 **Parte 1 — diagnóstico e escolha da mudança (só validação).** Tudo nesta
 parte usa a seed de avaliação 2001, a condição normal, a configuração A e as
@@ -1875,6 +1875,53 @@ tabela.
 As 4 seeds aprendem; antes, só 1. A seed 1 perde parte do pico. Por isso o
 teste pré-registrado (parte 2) mede a confiabilidade entre seeds, além do
 acerto.
+
+**Parte 2 — teste pré-registrado nas seeds de teste** (protocolo em
+`docs/achado-24-protocolo.md`, commitado antes da execução). Configuração A
+com `--dev-anneal-serves 100`. Hiperparâmetros inalterados. Seeds de treino
+42 e 1–5; seeds de teste 1001–1006, com 300 saques cada. Resultados em
+`docs/achado-19-resultados-real-male-cns-v0.9-in-achado21-elevation-all_visual-1500serves-anneal100.jsonl`.
+
+| seed treino/teste | normal: treinada | homeostase | inato | invertida: treinada | homeostase | inato |
+|---|---:|---:|---:|---:|---:|---:|
+| 42 / 1001 | **44,7%** [39,1; 50,3] | 26,3% | 24,7% | **57,0%** [51,3; 62,5] | 22,3% | 28,0% |
+| 1 / 1002 | **71,7%** [66,3; 76,5] | 25,3% | 24,3% | **72,0%** [66,7; 76,8] | 20,0% | 21,3% |
+| 2 / 1003 | **55,3%** [49,7; 60,9] | 33,7% | 29,0% | **58,7%** [53,0; 64,1] | 28,3% | 27,0% |
+| 3 / 1004 | **57,3%** [51,7; 62,8] | 28,7% | 26,0% | **44,7%** [39,1; 50,3] | 23,7% | 28,0% |
+| 4 / 1005 | **55,3%** [49,7; 60,9] | 30,7% | 23,0% | **52,7%** [47,0; 58,2] | 23,7% | 26,7% |
+| 5 / 1006 | **65,0%** [59,4; 70,2] | 24,3% | 22,7% | **64,3%** [58,8; 69,5] | 25,0% | 25,0% |
+| **somado (1.800 saques)** | **58,2%** [55,9; 60,5] | 28,2% | 24,9% | **58,2%** [55,9; 60,5] | 23,8% | 26,0% |
+
+**Critérios pré-registrados:**
+1. **Principal (normal, ≥ 5/6): cumprido, 6/6.** Em todas as seeds, o IC95
+   da treinada fica acima do IC95 dos dois controles.
+2. **Invertida (≥ 5/6): cumprido, 6/6.**
+3. **Ganho sobre o Achado 22: cumprido nas duas condições.** Normal: 58,2%
+   [55,9; 60,5] contra 37,3% [35,1; 39,5]. Invertida: 58,2% [55,9; 60,5]
+   contra 44,9% [42,6; 47,2]. A coincidência de 1.048/1.800 nas duas
+   condições é real: as somas por seed são diferentes.
+4. **Confiabilidade:** a treinada passa de 40% em **6/6** seeds nas duas
+   condições; no Achado 22, foi 1/6 em cada.
+
+**Leitura honesta:**
+- **É o primeiro resultado em que o conectoma real aprende de forma
+  confiável**, nas duas condições, em todas as seeds de teste, contra
+  controles que passam pelo mesmo desenvolvimento. A recompensa é um escalar
+  global; a regra é local (pré × perturbação × erro de predição); não há
+  atalho no circuito. Na condição invertida, a rede aprende o oposto da
+  ligação inata, e o controle com homeostase fica no acaso (23,8%).
+- **O pico caiu.** A seed 1 ia a 82–84% sem recozimento e agora fica em 72%.
+  A média sobe, de 37–45% para 58%, porque as outras cinco seeds passaram a
+  aprender.
+- **A mudança veio do diagnóstico, não de uma varredura.** Ela foi escolhida
+  com 4 seeds de treino e 1 de validação, a partir de um mecanismo medido
+  (biestabilidade e estado final dependente dos últimos saques). Não testei
+  outros valores de recozimento.
+- **Limites:** 58% ainda está longe do oráculo; as curvas de validação
+  oscilam entre 500 e 1.500 saques (a seed 1 de validação foi de 75% para
+  57%); o modelo continua todo excitatório por padrão (a inibição pelo
+  neurotransmissor piorou a validação, e não testei a combinação com o
+  recozimento).
 
 ## Limitações conhecidas
 
