@@ -1996,6 +1996,109 @@ saídas em `docs/diagnostico/`):
   somado **25,8% [23,9; 27,9]**. É o mesmo resultado do seed 0 e continua
   muito abaixo do conectoma real (58,2% [55,9; 60,5]).
 
+### Achado 26 (em direção a uma mosca mais fiel: lobo óptico graduado aprende; dopamina "onde a biologia indica" não; retina realista em andamento)
+
+**Objetivo:** aproximar o modelo da mosca em três pontos: (1) neurônios do
+lobo óptico graduados, com parâmetros publicados; (3) recompensa passando
+pelos neurônios dopaminérgicos reais, com plasticidade só onde eles chegam;
+(2) retina realista. Tudo nesta seção é **validação** (seed de avaliação
+2001, seeds de treino 1, 3, 5 e 42), sem protocolo pré-registrado nem seeds
+de teste.
+
+**Novo subgrafo** (`scripts/build_subgraph_local.py`, `connectome_v09_fv`),
+construído das tabelas públicas do MaleCNS v0.9
+(`gs://flyem-male-cns/v0.9/connectome-data/flat-connectome/`), sem neuPrint.
+As contagens coincidem com as do neuPrint (correlação 1,0; 99,97% das
+arestas):
+- 75.433 neurônios e 3,47 milhões de conexões;
+- R1–R8 completos (antes só R7/R8), com a posição pela coluna dos alvos.
+  Cada fotorreceptor projeta para uma única coluna, e a coluna prevê a
+  elevação usada antes com R² 0,992;
+- todos os tipos do *flyvis* presentes no MaleCNS (69.862 neurônios), mais
+  os LC, descendentes e dopaminérgicos anteriores, e o PAL03.
+
+**1. Lobo óptico graduado** (`neuron_model="flyvis"`, `sim/flyvis_params.py`):
+- Fotorreceptores, interneurônios e T4/T5 passam a ter voltagem contínua
+  (τ dv/dt = −v + b + Σ w·relu(v)), com constante de tempo, repouso, sinal
+  e força sináptica do modelo publicado *flyvis* (Lappalainen et al.,
+  *Nature* 2024, licença MIT). O checkpoint foi lido sem PyTorch, e a ordem
+  dos parâmetros foi verificada contra os sinais fixos.
+- O MaleCNS dá a fiação e as proporções. Cada par de tipos é normalizado
+  para a entrada média por neurônio do *flyvis*: sem isso, tipos como TmY4
+  recebem muito mais sinapses que no conectoma colunar do *flyvis* e a rede
+  diverge.
+- Ficam de fora 629 mil conexões (~18%) entre tipos do *flyvis* em pares
+  que o modelo publicado não inclui. CT1 e Am1 (um neurônio gigante por
+  lado, que no *flyvis* é um compartimento por coluna) foram excluídos.
+- LC, descendentes e dopaminérgicos continuam com spikes. A homeostase do
+  desenvolvimento só atua neles.
+- **Validação: aprende em 4/4 seeds** (`docs/flyvis-validacao.jsonl`):
+
+| seed | spikes (Achado 24, validação) | **graduado** | curva (0/500/1000/1500) |
+|---|---:|---:|---|
+| 1 | 64,7% | **51,3%** [45,7; 56,9] | 22 / 43 / 48 / 47% |
+| 3 | 47,7% | **59,3%** [53,7; 64,7] | 22 / 56 / 52 / 58% |
+| 5 | 57,3% | **53,3%** [47,7; 58,9] | 22 / 40 / 48 / 53% |
+| 42 | 47,0% | **55,7%** [50,0; 61,2] | 23 / 41 / 46 / 55% |
+
+  A média fica igual (54,9% contra 54,2%), mas o resultado fica mais
+  uniforme entre seeds. A inibição pelo neurotransmissor, que piorava o
+  modelo só com spikes (Achado 24, parte 1), funciona aqui.
+
+**3. Recompensa pelos dopaminérgicos reais** (`plasticity="dopamine"`,
+`sim/covariance_rule.DopamineLearner`):
+- No conectoma, os dopaminérgicos verdadeiros (PAM, PPL, PPM, PAL; 358)
+  projetam quase só para o corpo cogumelo. No caminho visuomotor, só **um
+  tipo, o PAL03**, contata LC10c-1/c-2/d (~70% deles). LC4, LPLC2, T4/T5,
+  Tm, Mi e L não recebem nada. Os LC10c fazem ~1.300 sinapses no DNa10.
+  (A previsão de neurotransmissor marca as células de Kenyon como
+  dopaminérgicas, um erro conhecido do classificador; usei os tipos.)
+- Regra: a recompensa vira corrente nos dois PAL03. A dopamina em cada LC é
+  o desvio dos spikes do PAL03 ponderado pelas sinapses PAL03→LC. Só as
+  sinapses desses LC mudam (98 sinapses LC10a/c → DNa10), com um traço de
+  elegibilidade de um frame cobrindo o atraso. As saídas sinápticas
+  rápidas do PAL03 foram zeradas (a dopamina só modula).
+- **Validação: não aprende** (`docs/dopamina-validacao.jsonl`): 20,7 / 22,7
+  / 22,7 / 23,7%.
+- **Controle** (`plasticity="global_da_sites"`): a regra global que funciona,
+  restrita às mesmas 98 sinapses, também quase não aprende (26,0 / 25,3 /
+  24,0 / 28,7%; `docs/global-locais-da-validacao.jsonl`).
+- **Leitura:** a falha vem principalmente de **onde** a dopamina chega no
+  conectoma visuomotor. O caminho LC10→DNa10 sozinho não basta para o jogo.
+  Na mosca real, o aprendizado visual operante conhecido envolve o corpo
+  cogumelo e o complexo central, que não estão no subgrafo. Um item 3 fiel
+  exige trazer esses circuitos.
+
+**2. Retina realista** (`sensory_mode="retina"`, `game/retina.py`;
+**em andamento**):
+- Cada fotorreceptor ganha uma direção no campo visual, derivada só do
+  conectoma (`scripts/add_visual_directions.py`). O eixo "para cima" vem da
+  direção preferida dos T4c/T4d e T5c/T5d (pela geometria dos dendritos:
+  Mi4/Tm1 na base, Mi9/Tm9 na ponta), validado pela borda dorsal (R7d/R8d).
+  O eixo ântero-posterior vem dos T4a/T4b e T5a/T5b. Os dois eixos ficam a
+  97° e iguais nos dois olhos. A escala é de 4,8° por coluna.
+- Cena: Pong visto de cima, bola escura sobre fundo cinza no horizonte. O
+  desvio lateral vira azimute, e a bola cresce ao se aproximar (sensibilidade
+  gaussiana de 5° por omatídio; bola com 5× o raio desenhado, documentado).
+- **Primeira validação interrompida** no saque ~650
+  (`docs/retina-validacao-interrompida.json`): sem aprendizado (curvas
+  22→19, 25→17, 28→22, 24→17%). Nenhum LC distinguia o lado da bola, embora
+  ~1.200 interneurônios e 250 T4/T5 distinguissem. Duas causas
+  identificadas:
+  - a entrada tônica dos graduados (fundo cinza) domina os LC. Criei a
+    opção `graded_to_spiking="rest_subtracted"` (os LC recebem a variação
+    em relação ao repouso), e com ela 33–43% dos LC ficaram seletivos;
+  - **a lâmina do MaleCNS está incompleta:** 66% das colunas do olho
+    esquerdo e 43% do direito não têm nenhum R1–R6 traçado. Na mosca, toda
+    coluna recebe seis. `scripts/impute_lamina.py` cria um R1–R6 virtual por
+    coluna faltante, com a mediana das colunas traçadas
+    (`connectome_v09_fvi`, imputação documentada). Com a lâmina completada,
+    os LC voltaram a não ser seletivos no primeiro teste. Isso ainda não foi
+    entendido.
+
+**Correção de diagnósticos:** os scripts de diagnóstico agora desligam a
+regra de plasticidade original (ver Achado 24).
+
 ## Limitações conhecidas
 
 - (Histórico, corrigido no Achado 9) O pool `descending` original tinha só
