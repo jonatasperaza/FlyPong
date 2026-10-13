@@ -116,10 +116,7 @@ def train(runner, learner, *, n_serves, train_seed, noise_std, reward_mode,
             learner.reset_traces()
             reward_prev = 0.0
             for _ in range(se.MAX_FRAMES_PER_TRIAL):
-                stim = ball_to_photoreceptor_stimulus(
-                    runner.perceived_ball_y(game), game.ball_x, HEIGHT, WIDTH,
-                    net.photoreceptor_positions,
-                )
+                stim = runner.photoreceptor_stimulus(game)
                 accum.fill(0.0)
                 noise_sum.fill(0.0)
                 for _ in range(runner.substeps):
@@ -210,8 +207,7 @@ def calibrate_baseline(runner, noise_std, *, frames=400, seed=0):
     com a rede no estado atual e com ruido."""
     net = runner.net
     rng = np.random.default_rng(seed + 31337)
-    stim = ball_to_photoreceptor_stimulus(HEIGHT / 2, WIDTH / 2, HEIGHT, WIDTH,
-                                          net.photoreceptor_positions)
+    stim = runner.center_stimulus()
     external = np.zeros(net.n, dtype=np.float64)
     accum = np.zeros(net.n, dtype=np.float64)
     desc = net.descending_idx

@@ -13,7 +13,8 @@ from datetime import datetime, timezone
 import numpy as np
 
 import sim.network as netmod
-from sim.network import ConnectomeNetwork
+from game import retina
+from sim.network import GRADED_INPUT_GAIN, ConnectomeNetwork
 from game.pong import PongGame, WIDTH, HEIGHT, PADDLE_H
 from game.sensory_map import ball_to_photoreceptor_stimulus, egocentric_ball_y
 from game.motor_read import read_motor_action
@@ -54,7 +55,7 @@ class FlyPongRunner:
         synapse_sign="none",
         neuron_model="lif",
     ):
-        if sensory_mode not in {"allocentric", "egocentric"}:
+        if sensory_mode not in {"allocentric", "egocentric", "retina"}:
             raise ValueError(f"unknown sensory mode: {sensory_mode}")
         self.sensory_mode = sensory_mode
         if reward_mode not in {"sparse", "dense", "mix", "proximity"}:
@@ -102,6 +103,8 @@ class FlyPongRunner:
         self.plastic_weight_log = [] if self.record_history else None
         self.dense_reward_log = [] if self.record_history else None
         self.proximity_reward_log = [] if self.record_history else None
+        if self.sensory_mode == "retina":
+            self._setup_retina()
         calib = (
             CALIBRATION_FRAMES
             if calibration_frames is None
@@ -178,11 +181,45 @@ class FlyPongRunner:
             return 0.0
         return 1.0 if progress > 0 else -1.0
 
+    def _setup_retina(self):
+        """Modo sensorial "retina" (game/retina.py): direcao de cada
+        fotorreceptor no campo visual e repouso dos graduados sob o fundo."""
+        df = self.net.neurons_df
+        if "az_deg" not in df.columns:
+            raise ValueError("sensory_mode='retina' exige az_deg/el_deg "
+                             "(scripts/add_visual_directions.py)")
+        idx = self.net.photoreceptor_idx
+        self.retina_az = df["az_deg"].to_numpy(dtype=float)[idx]
+        self.retina_el = df["el_deg"].to_numpy(dtype=float)[idx]
+        if getattr(self.net, "neuron_model", "lif") == "flyvis":
+            ext = np.zeros(self.net.n)
+            ext[idx] = retina.BACKGROUND * GRADED_INPUT_GAIN
+            self.net._settle_graded(external=ext)
+
+    def photoreceptor_stimulus(self, game=None):
+        """Estimulo nos fotorreceptores para o estado do jogo, no modo
+        sensorial do runner. No modo "retina", luminancia x GRADED_INPUT_GAIN
+        (os neuronios graduados voltam a luminancia em [0, 1])."""
+        game = self.game if game is None else game
+        if self.sensory_mode == "retina":
+            az, rho = retina.ball_direction(game)
+            lum = retina.luminance(self.retina_az, self.retina_el, az, rho)
+            return lum * GRADED_INPUT_GAIN
+        return ball_to_photoreceptor_stimulus(
+            self.perceived_ball_y(game), game.ball_x, HEIGHT, WIDTH,
+            self.net.photoreceptor_positions)
+
+    def center_stimulus(self):
+        """Estimulo com a bola parada a frente, no meio do campo (calibracao)."""
+        if self.sensory_mode == "retina":
+            az, rho = 0.0, float(np.degrees(np.arctan2(retina.BALL_VISUAL_RADIUS, WIDTH / 2)))
+            return retina.luminance(self.retina_az, self.retina_el, az, rho) * GRADED_INPUT_GAIN
+        return ball_to_photoreceptor_stimulus(
+            HEIGHT / 2, WIDTH / 2, HEIGHT, WIDTH, self.net.photoreceptor_positions)
+
     def _calibrate_motor_baseline(self, frames):
         diffs = []
-        stim = ball_to_photoreceptor_stimulus(
-            HEIGHT / 2, WIDTH / 2, HEIGHT, WIDTH, self.net.photoreceptor_positions
-        )
+        stim = self.center_stimulus()
         for _ in range(frames):
             self.motor_spike_accum.fill(0.0)
             for _ in range(self.substeps):
@@ -231,13 +268,7 @@ class FlyPongRunner:
         return game.ball_y
 
     def step_frame(self):
-        stim = ball_to_photoreceptor_stimulus(
-            self.perceived_ball_y(),
-            self.game.ball_x,
-            HEIGHT,
-            WIDTH,
-            self.net.photoreceptor_positions,
-        )
+        stim = self.photoreceptor_stimulus()
         direction_signal = self._direction_signal()
         self._synthetic_current_vector(direction_signal)
 

@@ -151,10 +151,7 @@ def network_policy(runner: "main.FlyPongRunner", noise_std: float = 0.0,
     noise_rng = np.random.default_rng(noise_seed)
 
     def act(game: PongGame) -> int:
-        stim = ball_to_photoreceptor_stimulus(
-            runner.perceived_ball_y(game), game.ball_x, HEIGHT, WIDTH,
-            net.photoreceptor_positions,
-        )
+        stim = runner.photoreceptor_stimulus(game)
         accum.fill(0.0)
         for _ in range(runner.substeps):
             external.fill(0.0)

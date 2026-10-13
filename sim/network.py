@@ -485,7 +485,7 @@ class ConnectomeNetwork:
         self.flyvis_edges_dropped = int((~spec & has).sum())
         return w
 
-    def _settle_graded(self, steps=400):
+    def _settle_graded(self, steps=400, external=None):
         """Estado de repouso dos graduados sem estimulo (o flyvis comeca no
         estado estacionario); usado em reset()."""
         g = self.graded_idx
@@ -494,6 +494,8 @@ class ConnectomeNetwork:
         for _ in range(steps):
             out[g] = np.maximum(v, 0.0)
             cur = self.W.dot(out)[g]
+            if external is not None:
+                cur = cur + external[g] / GRADED_INPUT_GAIN
             v += self.graded_rate * (-v + self.graded_bias + cur)
         self.v_graded_rest = v.copy()
         self.v_graded[:] = v

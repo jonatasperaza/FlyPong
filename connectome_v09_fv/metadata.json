@@ -28,5 +28,27 @@
       "n_ref": 897
     }
   },
-  "citation": "Berg et al., MaleCNS (Cell, 2026); flyvis: Lappalainen et al., Nature 2024."
+  "citation": "Berg et al., MaleCNS (Cell, 2026); flyvis: Lappalainen et al., Nature 2024.",
+  "visual_directions": {
+    "up_axis_hex": [
+      0.7279,
+      0.6857
+    ],
+    "front_axis_hex": [
+      0.587,
+      -0.8096
+    ],
+    "angle_up_front_deg": 97.3,
+    "deg_per_hex_unit": {
+      "L": 4.812,
+      "R": 4.812
+    },
+    "dorsal_rim_median_elevation_deg": {
+      "L": 53.052702462406586,
+      "R": 75.03323936186693
+    },
+    "interommatidial_deg": 4.5,
+    "binocular_overlap_deg": 10.0,
+    "method": "eixos pela direcao preferida dos T4/T5 (dendritos), escala pelo angulo entre omatidios"
+  }
 }
