@@ -51,6 +51,7 @@ class CovarianceRPELearner:
         scale_decay: float = 0.99,
         homeostasis_rate: float = 0.0,
         target_rate: float = 0.3,
+        update_mask=None,
     ):
         self.net = net
         self.eta = float(eta)
@@ -66,6 +67,9 @@ class CovarianceRPELearner:
         self.scale_decay = scale_decay
         self.homeostasis_rate = float(homeostasis_rate)
         self.target_rate = float(target_rate)
+        # Opcional: so as sinapses marcadas mudam pela regra (controle do
+        # Achado 26: regra global restrita aos locais com dopamina).
+        self.update_mask = None if update_mask is None else np.asarray(update_mask, dtype=bool)
 
         self.post_mean = np.zeros(net.n, dtype=np.float64)
         self.reward_mean = 0.0
@@ -112,10 +116,18 @@ class CovarianceRPELearner:
             self.elig_rms = self.scale_decay * self.elig_rms + (1 - self.scale_decay) * rms
 
         if len(self.data_idx) and self.eta != 0.0 and self.elig_rms > 1e-9:
-            w = self.net.W.data[self.data_idx]
-            w += self.eta * self.w_ref * rpe * self.elig / self.elig_rms
-            np.clip(w, 0.0, self.w_cap, out=w)
-            self.net.W.data[self.data_idx] = w
+            if self.update_mask is None:
+                w = self.net.W.data[self.data_idx]
+                w += self.eta * self.w_ref * rpe * self.elig / self.elig_rms
+                np.clip(w, 0.0, self.w_cap, out=w)
+                self.net.W.data[self.data_idx] = w
+            else:
+                m = self.update_mask
+                idx = self.data_idx[m]
+                w = self.net.W.data[idx]
+                w += self.eta * self.w_ref * rpe * self.elig[m] / self.elig_rms
+                np.clip(w, 0.0, self.w_cap, out=w)
+                self.net.W.data[idx] = w
         if len(self.data_idx) and self.homeostasis_rate != 0.0 and self.n_updates > 0:
             # Escalonamento sinaptico homeostatico (Turrigiano et al. 1998):
             # cada neuronio pos-sinaptico escala multiplicativamente suas

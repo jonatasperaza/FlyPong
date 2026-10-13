@@ -179,7 +179,7 @@ NOISE_MODES = ("independent", "antisymmetric")
 # frame anterior (+1: ~0,75; -1: silencio).
 DA_TONIC = 2.0
 DA_REWARD_GAIN = 1.5
-PLASTICITY_MODES = ("global", "dopamine")
+PLASTICITY_MODES = ("global", "dopamine", "global_da_sites")
 
 
 def antisymmetric_pairs(net):
@@ -317,7 +317,8 @@ def run_condition(data_dir, *, condition, policy, train_seed, eval_seed,
     recompensa vira corrente nos neuronios `reward_dan_types` e so mudam as
     sinapses cujo neuronio pre-sinaptico recebe sinapses deles; as saidas
     sinapticas desses neuronios sao zeradas, a dopamina so modula a
-    plasticidade).
+    plasticidade). "global_da_sites" e o controle: a regra global, mas so
+    nas sinapses que recebem dopamina desses neuronios.
 
     `dev_anneal_serves`: nos ultimos N saques do desenvolvimento, a taxa das
     duas homeostases cai linearmente ate zero (recozimento). Diagnostico do
@@ -342,13 +343,17 @@ def run_condition(data_dir, *, condition, policy, train_seed, eval_seed,
             raise ValueError(f"unknown plasticity: {plasticity}")
         lkw = dict(eta=0.0, elig_decay=elig_decay, w_cap_factor=w_cap_factor,
                    homeostasis_rate=homeostasis_rate, target_rate=target_rate)
-        if plasticity == "dopamine":
+        if plasticity in ("dopamine", "global_da_sites"):
             net = runner.net
             types = net.neurons_df["type"].astype(str).to_numpy()
             dans = np.flatnonzero(np.isin(types, list(reward_dan_types)))
             if not len(dans):
                 raise ValueError(f"nenhum neuronio dos tipos {reward_dan_types} no subgrafo")
             learner = DopamineLearner(net, dans, **lkw)
+            if plasticity == "global_da_sites":
+                # controle: regra global (erro de predicao escalar, sem atraso)
+                # so nas sinapses que recebem dopamina dos mesmos neuronios
+                learner = CovarianceRPELearner(net, update_mask=learner.receives_da, **lkw)
             # a dopamina so modula a plasticidade: sem sinapses rapidas de saida
             Wc = net.W.tocsc()
             for d in dans:
