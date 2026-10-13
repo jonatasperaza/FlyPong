@@ -52,6 +52,7 @@ class FlyPongRunner:
         sensory_mode="allocentric",
         retina_axis="pca",
         synapse_sign="none",
+        neuron_model="lif",
     ):
         if sensory_mode not in {"allocentric", "egocentric"}:
             raise ValueError(f"unknown sensory mode: {sensory_mode}")
@@ -70,6 +71,7 @@ class FlyPongRunner:
             record_history=self.record_history,
             retina_axis=retina_axis,
             synapse_sign=synapse_sign,
+            neuron_model=neuron_model,
         )
         self.game = PongGame(seed=game_seed)
         self.game_seed = game_seed

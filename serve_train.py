@@ -265,7 +265,7 @@ def run_condition(data_dir, *, condition, policy, train_seed, eval_seed,
                   retina_axis="pca", checkpoint_path=None, checkpoint_every=50,
                   dev_seed=None, recalibrate_after_dev=False,
                   visual_target_rate=None, noise_mode="independent",
-                  synapse_sign="none", dev_anneal_serves=0):
+                  synapse_sign="none", dev_anneal_serves=0, neuron_model="lif"):
     """Roda uma condicao do experimento.
 
     policy:
@@ -315,7 +315,8 @@ def run_condition(data_dir, *, condition, policy, train_seed, eval_seed,
     ck = _load_checkpoint(checkpoint_path)
     if ck is None:
         runner = se.build_runner(data_dir, sensory_mode="egocentric",
-                                 retina_axis=retina_axis, synapse_sign=synapse_sign)
+                                 retina_axis=retina_axis, synapse_sign=synapse_sign,
+                                 neuron_model=neuron_model)
         if condition == "inverted":
             se.invert_readout(runner)
         learner = CovarianceRPELearner(
@@ -337,6 +338,9 @@ def run_condition(data_dir, *, condition, policy, train_seed, eval_seed,
                 # (Achado 21).
                 scaled = np.concatenate([net.role_idx.get(k, np.empty(0, dtype=np.int64))
                                          for k in ("interneuron", "motion", "object", "target")])
+            # Neuronios graduados (neuron_model="flyvis") tem os parametros do
+            # flyvis: a homeostase so escala os neuronios com spikes (LC).
+            scaled = scaled[~net.graded_mask[scaled]]
             scaler = HomeostaticScaler(
                 net, scaled, rate=homeostasis_rate,
                 target_rate=target_rate if visual_target_rate is None else visual_target_rate)
@@ -417,6 +421,7 @@ def run_condition(data_dir, *, condition, policy, train_seed, eval_seed,
                    "noise_mode": noise_mode,
                    "synapse_sign": synapse_sign,
                    "dev_anneal_serves": dev_anneal_serves,
+                   "neuron_model": neuron_model,
                    "sensory_mode": "egocentric",
                    "retina_axis": retina_axis},
         "weights": {"mean_before": float(w0.mean()), "mean_after": float(w1.mean()),

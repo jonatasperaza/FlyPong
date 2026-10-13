@@ -1,0 +1,32 @@
+{
+  "source": "real",
+  "dataset": "male-cns:v0.9",
+  "dn_set": "original",
+  "input_set": "flyvis",
+  "built_from": "tabelas publicas gs://flyem-male-cns/v0.9 (minconf 0.5)",
+  "built_at": "2026-10-13T12:41:41.279438+00:00",
+  "n_neurons": 75433,
+  "n_edges": 3465395,
+  "photoreceptors_without_column_dropped": 197,
+  "retina_y_fit": {
+    "L": {
+      "coef": [
+        -537.1398,
+        -675.3016,
+        55875.2016
+      ],
+      "r2": 0.9924,
+      "n_ref": 834
+    },
+    "R": {
+      "coef": [
+        -495.1436,
+        -700.4815,
+        57927.7847
+      ],
+      "r2": 0.9916,
+      "n_ref": 897
+    }
+  },
+  "citation": "Berg et al., MaleCNS (Cell, 2026); flyvis: Lappalainen et al., Nature 2024."
+}

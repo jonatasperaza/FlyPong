@@ -32,6 +32,13 @@ TONIC_BIAS = 0.05
 # histamina dos fotorreceptores hiperpolariza L1-L3; aqui a entrada da retina
 # continua excitatoria, como em todos os Achados.
 INHIBITORY_NT = frozenset({"gaba", "glutamate"})
+# Modo neuron_model="flyvis": duracao de um passo (s) para os neuronios
+# graduados. 4 passos por frame = 20 ms por frame (50 Hz).
+GRADED_DT = 0.005
+GRADED_ROLES = ("photoreceptor", "interneuron", "motion")
+# Ganho maximo do estimulo da bola (game.sensory_map, gain=6): nos graduados
+# a entrada vira luminancia em [0, 1], como no flyvis.
+GRADED_INPUT_GAIN = 6.0
 
 
 class ConnectomeNetwork:
@@ -46,7 +53,8 @@ class ConnectomeNetwork:
     """
 
     def __init__(self, data_dir: str, *, prune_causal: bool = False, record_history: bool = True,
-                 retina_axis: str = "pca", synapse_sign: str = "none"):
+                 retina_axis: str = "pca", synapse_sign: str = "none",
+                 neuron_model: str = "lif", flyvis_model: str = "000"):
         neurons_path = os.path.join(data_dir, "neurons.parquet")
         edges_path = os.path.join(data_dir, "edges.parquet")
         neurons_df = pd.read_parquet(neurons_path)
@@ -117,6 +125,12 @@ class ConnectomeNetwork:
             sign = np.where(np.isin(nt, list(INHIBITORY_NT)), -1.0, 1.0)
             pre_ok = np.where(valid, pre, 0).astype(np.int64)
             weight = weight * np.where(valid, sign[pre_ok], 1.0)
+        if neuron_model not in {"lif", "flyvis"}:
+            raise ValueError(f"unknown neuron_model: {neuron_model}")
+        self.neuron_model = neuron_model
+        self.graded_mask = np.zeros(self.n, dtype=bool)
+        if neuron_model == "flyvis":
+            weight = self._flyvis_weights(pre, post, weight, valid, flyvis_model)
         self.inhibitory_idx = (
             np.flatnonzero(np.isin(self.neurons_df["nt"].astype(str).str.lower().to_numpy(),
                                    list(INHIBITORY_NT)))
@@ -155,6 +169,10 @@ class ConnectomeNetwork:
         self.plastic_weight_history: list[float] = []
 
         self.lif = LIFPopulation(self.n)
+        self.output = np.zeros(self.n, dtype=np.float64)
+        if neuron_model == "flyvis":
+            self.v_graded = self.graded_bias.copy()
+            self._settle_graded()
         self.dopamine_level = 0.0
         self.pre_trace = np.zeros(self.n, dtype=np.float64)
         self.post_trace = np.zeros(self.n, dtype=np.float64)
@@ -318,6 +336,10 @@ class ConnectomeNetwork:
 
     def reset(self):
         self.lif.reset()
+        self.output.fill(0.0)
+        if self.neuron_model == "flyvis":
+            self.v_graded[:] = self.v_graded_rest
+            self.output[self.graded_idx] = np.maximum(self.v_graded, 0.0)
         self.dopamine_level = 0.0
         self.pre_trace.fill(0.0)
         self.post_trace.fill(0.0)
@@ -328,10 +350,25 @@ class ConnectomeNetwork:
 
     def step(self, external_current):
         # Avoid a new bool->float allocation in the hot SpMV path.
-        np.copyto(self.last_spikes_float, self.last_spikes)
-        np.copyto(self.current, self.W.dot(self.last_spikes_float))
-        self.current += external_current
-        spikes = self.lif.step(self.current)
+        if self.neuron_model == "flyvis":
+            # Saida de cada neuronio: spike (0/1) nos neuronios com spikes,
+            # relu(v) nos graduados (flyvis). Corrente = W . saida.
+            np.copyto(self.current, self.W.dot(self.output))
+            self.current += external_current
+            g = self.graded_idx
+            # Entrada externa dos graduados (retina) em luminancia: o estimulo
+            # do jogo vai de 0 a GRADED_INPUT_GAIN.
+            cur_g = self.current[g] + external_current[g] * (1.0 / GRADED_INPUT_GAIN - 1.0)
+            self.v_graded += self.graded_rate * (-self.v_graded + self.graded_bias + cur_g)
+            spikes = self.lif.step(self.current)
+            spikes[g] = False
+            self.output[:] = spikes
+            self.output[g] = np.maximum(self.v_graded, 0.0)
+        else:
+            np.copyto(self.last_spikes_float, self.last_spikes)
+            np.copyto(self.current, self.W.dot(self.last_spikes_float))
+            self.current += external_current
+            spikes = self.lif.step(self.current)
 
         self.pre_trace *= TRACE_DECAY
         self.post_trace *= TRACE_DECAY
@@ -363,7 +400,104 @@ class ConnectomeNetwork:
             self.W.data[self.plastic_data_idx] = self.plastic_w_init + self.plastic_delta
 
         self.last_spikes = spikes
+        if self.neuron_model == "flyvis":
+            # Contagens por frame: spikes nos neuronios com spikes, atividade
+            # relu(v) integrada nos graduados.
+            return self.output.copy()
         return spikes
+
+    def _flyvis_weights(self, pre, post, weight, valid, model):
+        """Pesos e parametros do modo flyvis.
+
+        Neuronios graduados: papeis photoreceptor, interneuron e motion. Tipos
+        com parametros no flyvis (coluna `flyvis_type`) usam constante de
+        tempo e potencial de repouso do modelo publicado; os demais usam a
+        mediana das constantes de tempo do flyvis e repouso 0.
+        Arestas para neuronios graduados: sinal x n_sinapses x forca do par
+        de tipos no flyvis; para pares fora da especificacao do flyvis, a
+        forca e a mediana das forcas nao nulas e o sinal vem do
+        neurotransmissor do neuronio pre-sinaptico. Arestas para neuronios
+        com spikes (LC, descendentes, dopaminergicos) ficam como no modo
+        LIF (n_sinapses x SYNAPSE_GAIN, com o sinal de synapse_sign).
+        """
+        import sim.flyvis_params as fp
+        params = fp.load(model)
+        self.flyvis_params = params
+        df = self.neurons_df
+        roles = df["role"].astype(str).to_numpy()
+        self.graded_mask = np.isin(roles, GRADED_ROLES)
+        self.graded_idx = np.flatnonzero(self.graded_mask)
+        if "flyvis_type" in df.columns:
+            ftype = df["flyvis_type"].astype(object).where(df["flyvis_type"].notna(), None).to_numpy()
+        else:
+            ftype = np.array([None] * self.n, dtype=object)
+        tau_default = float(np.median(list(params.tau.values())))
+        tau = np.array([params.tau.get(t, tau_default) if t is not None else tau_default for t in ftype])
+        bias = np.array([params.bias.get(t, 0.0) if t is not None else 0.0 for t in ftype])
+        self.graded_tau = tau[self.graded_idx]
+        self.graded_bias = bias[self.graded_idx]
+        self.graded_rate = GRADED_DT / np.maximum(self.graded_tau, GRADED_DT)
+        nonzero = [s for s in params.strength.values() if s > 0]
+        s_default = float(np.median(nonzero))
+        nt = df["nt"].astype(str).str.lower().to_numpy() if "nt" in df.columns else np.array(["unknown"] * self.n)
+        nt_sign = np.where(np.isin(nt, list(INHIBITORY_NT)), -1.0, 1.0)
+        counts = self.edges_df["weight"].to_numpy(dtype=np.float64)
+        w = weight.copy()
+        k = np.flatnonzero(valid)
+        k = k[self.graded_mask[post[k].astype(np.int64)]]
+        a = pre[k].astype(np.int64)
+        q = post[k].astype(np.int64)
+        e = pd.DataFrame({"k": k, "a": a, "q": q, "c": counts[k],
+                          "ta": ftype[a], "tq": ftype[q]})
+        # Neuronios unicos que cobrem o campo visual inteiro (CT1, Am1) sao
+        # compartimentos por coluna no flyvis e nao tem equivalente aqui.
+        wide = df["type"].astype(str).isin(["CT1", "Am1"]).to_numpy()
+        self.flyvis_excluded_wide = int(wide.sum())
+        e = e[~wide[e.a.to_numpy()] & ~wide[e.q.to_numpy()]]
+        w[k] = 0.0
+        has = e.ta.notna() & e.tq.notna()
+        e["pair"] = list(zip(e.ta, e.tq))
+        spec = has & e.pair.isin(set(params.strength))
+        # Pares do flyvis: forca e sinal do flyvis; contagens do MaleCNS
+        # normalizadas por par para dar a mesma entrada media por neuronio
+        # pos-sinaptico que o flyvis (sum das colunas).
+        es = e[spec]
+        n_post = pd.Series(ftype).value_counts()
+        tot = es.groupby("pair").c.sum()
+        mean_per_post = tot / np.array([n_post[p_[1]] for p_ in tot.index])
+        fv_n = pd.Series({p_: params.n_syn[p_] for p_ in tot.index})
+        scale = fv_n / mean_per_post
+        sc = es.pair.map(scale).to_numpy()
+        w[es.k.to_numpy()] = (np.array([params.sign[p_] * params.strength[p_] for p_ in es.pair])
+                               * es.c.to_numpy() * sc)
+        # Arestas que envolvem tipos sem parametros no flyvis: sinal do
+        # neurotransmissor, forca normalizada para que a soma |entrada| desses
+        # neuronios seja a mediana da soma |entrada| dos tipos do flyvis.
+        ex = e[~spec & ~(has)]
+        if len(ex):
+            fv_in = pd.Series(np.abs(w[es.k.to_numpy()])).groupby(es.q.to_numpy()).sum()
+            target_in = float(fv_in.median())
+            tot_ex = ex.groupby("q").c.sum()
+            sc2 = ex.q.map(target_in / tot_ex).to_numpy()
+            w[ex.k.to_numpy()] = nt_sign[ex.a.to_numpy()] * ex.c.to_numpy() * sc2
+        self.flyvis_edges_in_spec = int(spec.sum())
+        self.flyvis_edges_extra = int(len(ex))
+        self.flyvis_edges_dropped = int((~spec & has).sum())
+        return w
+
+    def _settle_graded(self, steps=400):
+        """Estado de repouso dos graduados sem estimulo (o flyvis comeca no
+        estado estacionario); usado em reset()."""
+        g = self.graded_idx
+        out = np.zeros(self.n)
+        v = self.graded_bias.copy()
+        for _ in range(steps):
+            out[g] = np.maximum(v, 0.0)
+            cur = self.W.dot(out)[g]
+            v += self.graded_rate * (-v + self.graded_bias + cur)
+        self.v_graded_rest = v.copy()
+        self.v_graded[:] = v
+        self.output[g] = np.maximum(v, 0.0)
 
     def plastic_weight_mean(self):
         if len(self.plastic_data_idx):
