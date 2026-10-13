@@ -1923,6 +1923,77 @@ com `--dev-anneal-serves 100`. Hiperparâmetros inalterados. Seeds de treino
   neurotransmissor piorou a validação, e não testei a combinação com o
   recozimento).
 
+### Achado 25 (controle de conectoma embaralhado: com a ligação real a rede aprende; embaralhada, não aprende nada)
+
+**Pergunta:** o aprendizado do Achado 24 depende da ligação específica do
+conectoma, ou qualquer rede com a mesma arquitetura aprenderia? Vários
+projetos de "conectoma de mosca joga X" relatam que uma ligação embaralhada
+funciona tão bem quanto a real. Protocolo e critérios em
+`docs/achado-25-protocolo.md`, commitados antes da execução.
+
+**Controle** (`scripts/make_shuffled_connectome.py`, `connectome_v09_in21_shuf0`):
+- dentro de cada bloco papel pré → papel pós (por exemplo, fotorreceptor →
+  interneurônio ou LC → descendente), os neurônios pós-sinápticos das
+  arestas são permutados ao acaso; cada aresta mantém o neurônio de origem e
+  o peso;
+- **preservado:** neurônios, tipos, posição na retina, lados, peso total,
+  força de saída de cada neurônio, número de entradas por bloco, arquitetura
+  em camadas e as 498 sinapses plásticas;
+- **destruído:** quem se liga a quem. Os fotorreceptores que convergem num
+  mesmo neurônio passam a vir de toda a retina, e 78% desses neurônios
+  recebem dos dois olhos (0% no real);
+- **diferença residual:** a força de entrada muda um pouco (correlação 0,86
+  com a real).
+
+Tudo o mais é idêntico ao Achado 24: desenvolvimento com recozimento,
+hiperparâmetros, seeds de treino e de teste, e as três políticas.
+
+**Resultados** (6 seeds de teste × 300 saques, somados; IC95 de Wilson):
+
+| | normal: treinada | homeostase | inato | invertida: treinada | homeostase | inato |
+|---|---:|---:|---:|---:|---:|---:|
+| **conectoma real** (Achado 24) | **58,2%** [55,9; 60,5] | 28,2% | 24,9% | **58,2%** [55,9; 60,5] | 23,8% | 26,0% |
+| **embaralhado** | 25,8% [23,9; 27,9] | 26,4% | 25,2% | 24,1% [22,1; 26,1] | 24,4% | 24,3% |
+| seeds em que a treinada supera os controles | real 6/6, embaralhado **0/6** | | | real 6/6, embaralhado **0/6** | | |
+
+Treinada no embaralhado, por seed (1001–1006): normal 25,3 / 23,0 / 27,3 /
+30,3 / 23,7 / 25,3%; invertida 25,7 / 20,7 / 28,0 / 25,7 / 23,3 / 21,0%. As
+curvas ficam planas do início ao fim.
+
+**Critérios pré-registrados:**
+1. **Principal (normal): cumprido.** Real 58,2% [55,9; 60,5] contra
+   embaralhado 25,8% [23,9; 27,9], sem sobreposição.
+2. **Invertida: cumprido.** Real 58,2% [55,9; 60,5] contra embaralhado 24,1%
+   [22,1; 26,1].
+3. **Descritivo:** o embaralhado não aprende nada. Em 0/6 seeds, nas duas
+   condições, a treinada fica acima dos controles, e ela fica igual a eles.
+
+**Por que** (`scripts/diagnostics/layer_rates.py`, `dev_trajectory.py`;
+saídas em `docs/diagnostico/`):
+- Durante o desenvolvimento, a rede embaralhada **não está morta**. A
+  homeostase a leva à mesma atividade média da real (LC ~0,074 spike por
+  passo), com a mesma alternância entre explosão e silêncio.
+- Jogando, com a rede congelada, o sinal da bola se perde já na primeira
+  camada. Os fotorreceptores disparam, mas só 25% dos interneurônios ficam
+  ativos (0,010/frame), e T4/T5 e LC ficam calados. Na rede real, todas as
+  camadas respondem (0,06–0,11/frame; 57–72% ativos). Sem a convergência
+  retinotópica, um objeto pequeno não junta entrada coincidente suficiente
+  num mesmo neurônio.
+
+**Leitura honesta:**
+- **Há evidência de que a ligação específica do conectoma é necessária para
+  esse aprendizado.** Uma rede com os mesmos neurônios, pesos e graus, mas
+  sem a fiação real, não aprende. Até onde pesquisei, isso é o contrário do
+  que relatam vários projetos semelhantes, em que o embaralhado funciona
+  igual.
+- **O que isso mostra e o que não mostra:** a ligação real carrega a bola
+  até os LC; a embaralhada não. Não mostra que a fiação real seja "ótima"
+  para Pong, nem separa o papel da retinotopia do de outras propriedades.
+  Um embaralhamento que preserve a retinotopia, mas destrua o resto, seria o
+  próximo controle.
+- **Um único embaralhamento** nas duas condições. A réplica com o seed 1 (só
+  a treinada, condição normal) está registrada abaixo.
+
 ## Limitações conhecidas
 
 - (Histórico, corrigido no Achado 9) O pool `descending` original tinha só
