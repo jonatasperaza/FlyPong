@@ -276,7 +276,8 @@ def run_condition(data_dir, *, condition, policy, train_seed, eval_seed,
                   dev_seed=None, recalibrate_after_dev=False,
                   visual_target_rate=None, noise_mode="independent",
                   synapse_sign="none", dev_anneal_serves=0, neuron_model="lif",
-                  plasticity="global", reward_dan_types=("PAL03",)):
+                  plasticity="global", reward_dan_types=("PAL03",),
+                  sensory_mode="egocentric"):
     """Roda uma condicao do experimento.
 
     policy:
@@ -332,7 +333,7 @@ def run_condition(data_dir, *, condition, policy, train_seed, eval_seed,
     t0 = time.perf_counter()
     ck = _load_checkpoint(checkpoint_path)
     if ck is None:
-        runner = se.build_runner(data_dir, sensory_mode="egocentric",
+        runner = se.build_runner(data_dir, sensory_mode=sensory_mode,
                                  retina_axis=retina_axis, synapse_sign=synapse_sign,
                                  neuron_model=neuron_model)
         if condition == "inverted":
@@ -458,7 +459,7 @@ def run_condition(data_dir, *, condition, policy, train_seed, eval_seed,
                    "neuron_model": neuron_model,
                    "plasticity": plasticity,
                    "reward_dan_types": list(reward_dan_types) if plasticity == "dopamine" else None,
-                   "sensory_mode": "egocentric",
+                   "sensory_mode": sensory_mode,
                    "retina_axis": retina_axis},
         "weights": {"mean_before": float(w0.mean()), "mean_after": float(w1.mean()),
                     "frac_zero_after": float((w1 <= 1e-9).mean()),
