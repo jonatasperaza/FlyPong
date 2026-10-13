@@ -1,0 +1,38 @@
+[
+ {
+  "arm": "normal_dev1_tr1_dev_anneal_serves100_neuron_modelflyvis_sensory_moderetina_synapse_signnt",
+  "phase": "train",
+  "serve": 700,
+  "curve": [
+   0.22,
+   0.19
+  ]
+ },
+ {
+  "arm": "normal_dev3_tr3_dev_anneal_serves100_neuron_modelflyvis_sensory_moderetina_synapse_signnt",
+  "phase": "train",
+  "serve": 650,
+  "curve": [
+   0.25,
+   0.17
+  ]
+ },
+ {
+  "arm": "normal_dev42_tr42_dev_anneal_serves100_neuron_modelflyvis_sensory_moderetina_synapse_signnt",
+  "phase": "train",
+  "serve": 650,
+  "curve": [
+   0.28,
+   0.22
+  ]
+ },
+ {
+  "arm": "normal_dev5_tr5_dev_anneal_serves100_neuron_modelflyvis_sensory_moderetina_synapse_signnt",
+  "phase": "train",
+  "serve": 650,
+  "curve": [
+   0.24,
+   0.17
+  ]
+ }
+]

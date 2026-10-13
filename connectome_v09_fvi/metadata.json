@@ -1,0 +1,82 @@
+{
+  "source": "real",
+  "dataset": "male-cns:v0.9",
+  "dn_set": "original",
+  "input_set": "flyvis_imputed",
+  "built_from": "tabelas publicas gs://flyem-male-cns/v0.9 (minconf 0.5)",
+  "built_at": "2026-10-13T12:41:41.279438+00:00",
+  "n_neurons": 76401,
+  "n_edges": 3469250,
+  "photoreceptors_without_column_dropped": 197,
+  "retina_y_fit": {
+    "L": {
+      "coef": [
+        -537.1398,
+        -675.3016,
+        55875.2016
+      ],
+      "r2": 0.9924,
+      "n_ref": 834
+    },
+    "R": {
+      "coef": [
+        -495.1436,
+        -700.4815,
+        57927.7847
+      ],
+      "r2": 0.9916,
+      "n_ref": 897
+    }
+  },
+  "citation": "Berg et al., MaleCNS (Cell, 2026); flyvis: Lappalainen et al., Nature 2024.",
+  "hex_inferred_for_targets": 904,
+  "lamina_imputation": {
+    "stats": {
+      "L": {
+        "colunas_L1": 884,
+        "sem_R1_R6": 585,
+        "mediana_sinapses_por_coluna": {
+          "L1": 110.0,
+          "L2": 117.5,
+          "L3": 28.0,
+          "T1": 4.0
+        }
+      },
+      "R": {
+        "colunas_L1": 892,
+        "sem_R1_R6": 383,
+        "mediana_sinapses_por_coluna": {
+          "L1": 129.0,
+          "L2": 128.0,
+          "L3": 21.0,
+          "T1": 4.0
+        }
+      }
+    },
+    "virtual_neurons": 968,
+    "virtual_edges": 3855,
+    "method": "um R1-R6 virtual por coluna sem R1-R6 traçado; mediana por olho"
+  },
+  "visual_directions": {
+    "up_axis_hex": [
+      0.7279,
+      0.6857
+    ],
+    "front_axis_hex": [
+      0.587,
+      -0.8096
+    ],
+    "angle_up_front_deg": 97.3,
+    "deg_per_hex_unit": {
+      "L": 4.812,
+      "R": 4.812
+    },
+    "dorsal_rim_median_elevation_deg": {
+      "L": 66.6581598508215,
+      "R": 81.6327443304893
+    },
+    "interommatidial_deg": 4.5,
+    "binocular_overlap_deg": 10.0,
+    "method": "eixos pela direcao preferida dos T4/T5 (dendritos), escala pelo angulo entre omatidios"
+  }
+}

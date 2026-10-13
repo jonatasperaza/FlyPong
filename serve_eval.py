@@ -204,9 +204,10 @@ def oracle_policy(game: PongGame) -> int:
 
 def build_runner(data_dir: str, *, substeps=None, calibration_frames=None,
                  sensory_mode="allocentric", retina_axis="pca", synapse_sign="none",
-                 neuron_model="lif"):
+                 neuron_model="lif", graded_to_spiking="absolute"):
     return main.FlyPongRunner(
         data_dir,
+        graded_to_spiking=graded_to_spiking,
         neuron_model=neuron_model,
         synapse_sign=synapse_sign,
         signal_mode="real",

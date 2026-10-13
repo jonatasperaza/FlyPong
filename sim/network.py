@@ -54,7 +54,8 @@ class ConnectomeNetwork:
 
     def __init__(self, data_dir: str, *, prune_causal: bool = False, record_history: bool = True,
                  retina_axis: str = "pca", synapse_sign: str = "none",
-                 neuron_model: str = "lif", flyvis_model: str = "000"):
+                 neuron_model: str = "lif", flyvis_model: str = "000",
+                 graded_to_spiking: str = "absolute"):
         neurons_path = os.path.join(data_dir, "neurons.parquet")
         edges_path = os.path.join(data_dir, "edges.parquet")
         neurons_df = pd.read_parquet(neurons_path)
@@ -128,6 +129,13 @@ class ConnectomeNetwork:
         if neuron_model not in {"lif", "flyvis"}:
             raise ValueError(f"unknown neuron_model: {neuron_model}")
         self.neuron_model = neuron_model
+        if graded_to_spiking not in {"absolute", "rest_subtracted"}:
+            raise ValueError(f"unknown graded_to_spiking: {graded_to_spiking}")
+        # "rest_subtracted": neuronios com spikes recebem dos graduados a
+        # variacao de relu(v) em relacao ao repouso (adaptacao a entrada
+        # tonica); os graduados entre si continuam com relu(v) absoluto.
+        self.graded_to_spiking = graded_to_spiking
+        self._rest_cache = None
         self.graded_mask = np.zeros(self.n, dtype=bool)
         if neuron_model == "flyvis":
             weight = self._flyvis_weights(pre, post, weight, valid, flyvis_model)
@@ -354,6 +362,8 @@ class ConnectomeNetwork:
             # Saida de cada neuronio: spike (0/1) nos neuronios com spikes,
             # relu(v) nos graduados (flyvis). Corrente = W . saida.
             np.copyto(self.current, self.W.dot(self.output))
+            if self.graded_to_spiking == "rest_subtracted":
+                self.current[self.spiking_idx] -= self._rest_drive()
             self.current += external_current
             g = self.graded_idx
             # Entrada externa dos graduados (retina) em luminancia: o estimulo
@@ -427,6 +437,7 @@ class ConnectomeNetwork:
         roles = df["role"].astype(str).to_numpy()
         self.graded_mask = np.isin(roles, GRADED_ROLES)
         self.graded_idx = np.flatnonzero(self.graded_mask)
+        self.spiking_idx = np.flatnonzero(~self.graded_mask)
         if "flyvis_type" in df.columns:
             ftype = df["flyvis_type"].astype(object).where(df["flyvis_type"].notna(), None).to_numpy()
         else:
@@ -485,6 +496,25 @@ class ConnectomeNetwork:
         self.flyvis_edges_dropped = int((~spec & has).sum())
         return w
 
+    def _rest_drive(self):
+        """W[spiking, graded] . relu(v_repouso), recalculado com os pesos
+        atuais (a homeostase e a plasticidade mudam W.data no lugar)."""
+        W = self.W
+        c = self._rest_cache
+        if c is None or c[0] is not W.data or c[1] is not self.v_graded_rest:
+            rows = self.spiking_idx
+            starts, ends = W.indptr[rows], W.indptr[rows + 1]
+            lens = ends - starts
+            K = np.concatenate([np.arange(s, e) for s, e in zip(starts, ends)]) if len(rows) else np.empty(0, np.int64)
+            rid = np.repeat(np.arange(len(rows)), lens)
+            rest = np.zeros(self.n)
+            rest[self.graded_idx] = np.maximum(self.v_graded_rest, 0.0)
+            restK = rest[W.indices[K]]
+            c = (W.data, self.v_graded_rest, K, rid, restK)
+            self._rest_cache = c
+        _, _, K, rid, restK = c
+        return np.bincount(rid, weights=self.W.data[K] * restK, minlength=len(self.spiking_idx))
+
     def _settle_graded(self, steps=400, external=None):
         """Estado de repouso dos graduados sem estimulo (o flyvis comeca no
         estado estacionario); usado em reset()."""
@@ -498,6 +528,7 @@ class ConnectomeNetwork:
                 cur = cur + external[g] / GRADED_INPUT_GAIN
             v += self.graded_rate * (-v + self.graded_bias + cur)
         self.v_graded_rest = v.copy()
+        self._rest_cache = None
         self.v_graded[:] = v
         self.output[g] = np.maximum(v, 0.0)
 

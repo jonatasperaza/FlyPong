@@ -277,7 +277,7 @@ def run_condition(data_dir, *, condition, policy, train_seed, eval_seed,
                   visual_target_rate=None, noise_mode="independent",
                   synapse_sign="none", dev_anneal_serves=0, neuron_model="lif",
                   plasticity="global", reward_dan_types=("PAL03",),
-                  sensory_mode="egocentric"):
+                  sensory_mode="egocentric", graded_to_spiking="absolute"):
     """Roda uma condicao do experimento.
 
     policy:
@@ -336,7 +336,8 @@ def run_condition(data_dir, *, condition, policy, train_seed, eval_seed,
     if ck is None:
         runner = se.build_runner(data_dir, sensory_mode=sensory_mode,
                                  retina_axis=retina_axis, synapse_sign=synapse_sign,
-                                 neuron_model=neuron_model)
+                                 neuron_model=neuron_model,
+                                 graded_to_spiking=graded_to_spiking)
         if condition == "inverted":
             se.invert_readout(runner)
         if plasticity not in PLASTICITY_MODES:
@@ -463,6 +464,7 @@ def run_condition(data_dir, *, condition, policy, train_seed, eval_seed,
                    "dev_anneal_serves": dev_anneal_serves,
                    "neuron_model": neuron_model,
                    "plasticity": plasticity,
+                   "graded_to_spiking": graded_to_spiking,
                    "reward_dan_types": list(reward_dan_types) if plasticity == "dopamine" else None,
                    "sensory_mode": sensory_mode,
                    "retina_axis": retina_axis},

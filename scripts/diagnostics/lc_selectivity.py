@@ -39,7 +39,7 @@ for _ in range(n_serves):
     se.serve(g, rng)
     net.reset()
     for _ in range(se.MAX_FRAMES_PER_TRIAL):
-        stim = bs(r.perceived_ball_y(g), g.ball_x, HEIGHT, WIDTH, net.photoreceptor_positions)
+        stim = r.photoreceptor_stimulus(g)
         acc.fill(0)
         for _ in range(r.substeps):
             ext.fill(0)
