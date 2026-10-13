@@ -1,0 +1,2 @@
+shuf0_trained_1001.pkl photoreceptor: taxa=0.248/frame ativos=0.73 | interneuron: taxa=0.010/frame ativos=0.25 | motion: taxa=0.000/frame ativos=0.05 | object: taxa=0.000/frame ativos=0.00 | target: taxa=0.000/frame ativos=0.00 | descending: taxa=0.219/frame ativos=1.00
+dev1_anneal100.pkl photoreceptor: taxa=0.180/frame ativos=0.57 | interneuron: taxa=0.094/frame ativos=0.62 | motion: taxa=0.091/frame ativos=0.62 | object: taxa=0.113/frame ativos=0.72 | target: taxa=0.064/frame ativos=0.70 | descending: taxa=0.228/frame ativos=1.00

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Achado 24: trajetoria da atividade durante a fase de desenvolvimento.
 
-Uso: python scripts/diagnostics/dev_trajectory.py <seed de treino> [saques] [synapse_sign] [taxa alvo visual]
+Uso: python scripts/diagnostics/dev_trajectory.py <seed de treino> [saques] [synapse_sign] [taxa alvo visual ou -] [dados] [recozimento]
 
 Repete a fase de desenvolvimento da configuracao A (connectome_v09_in21,
 all_visual, mesmos parametros e seeds de run_condition) e registra, a cada
@@ -24,9 +24,11 @@ from sim.covariance_rule import CovarianceRPELearner, HomeostaticScaler
 seed = int(sys.argv[1])
 n_serves = int(sys.argv[2]) if len(sys.argv) > 2 else 300
 sign = sys.argv[3] if len(sys.argv) > 3 else "none"
-vis_target = float(sys.argv[4]) if len(sys.argv) > 4 else None
+vis_target = float(sys.argv[4]) if len(sys.argv) > 4 and sys.argv[4] != "-" else None
+data = sys.argv[5] if len(sys.argv) > 5 else "connectome_v09_in21"
+anneal = int(sys.argv[6]) if len(sys.argv) > 6 else 0
 d = st.DEFAULTS
-r = se.build_runner(str(HERE / "connectome_v09_in21"), sensory_mode="egocentric",
+r = se.build_runner(str(HERE / data), sensory_mode="egocentric",
                     retina_axis="elevation", synapse_sign=sign)
 net = r.net
 learner = CovarianceRPELearner(net, eta=0.0, elig_decay=d["elig_decay"], w_cap_factor=d["w_cap_factor"],
@@ -37,7 +39,7 @@ scaler = HomeostaticScaler(net, vis, rate=d["homeostasis_rate"],
 lc = np.concatenate([net.object_idx, net.target_idx])
 inter = net.role_idx["interneuron"]
 desc = net.descending_idx
-tag = "" if vis_target is None else f"_vt{vis_target:g}"
+tag = ("" if vis_target is None else f"_vt{vis_target:g}") + ("" if data == "connectome_v09_in21" else f"_{data}") + (f"_anneal{anneal}" if anneal else "")
 out = HERE / "runs" / "dev_trajectory" / f"{seed}_{sign}{tag}.tsv"
 out.parent.mkdir(parents=True, exist_ok=True)
 f = open(out, "w")
@@ -63,6 +65,13 @@ def flush():
         v.clear()
 
 
+def set_rate(k):
+    left = n_serves - k
+    f = 1.0 if not anneal or left > anneal else left / anneal
+    learner.homeostasis_rate = d["homeostasis_rate"] * f
+    scaler.rate = d["homeostasis_rate"] * f
+
+
 def at_serve_start(loop_state):
     # train() chama o checkpoint no inicio de cada saque k > 0: as contagens
     # acumuladas sao as do saque k - 1.
@@ -72,7 +81,7 @@ def at_serve_start(loop_state):
 
 st.train(r, learner, n_serves=n_serves, train_seed=seed + st.DEV_SEED_OFFSET,
          noise_std=d["noise_std"], reward_mode="dense", on_frame=on_frame,
-         checkpoint=at_serve_start, checkpoint_every=1)
+         checkpoint=at_serve_start, checkpoint_every=1, on_serve=set_rate)
 state["k"] = n_serves - 1
 flush()
 f.close()
