@@ -55,6 +55,7 @@ def _job(args):
     row["_checkpoint"] = str(ck_path)
     row["data_source"] = data_source(data_dir)
     row["dataset"], row["dn_set"], row["input_set"] = data_tags(data_dir)
+    row["shuffle_seed"] = shuffle_seed(data_dir)
     return row
 
 
@@ -65,6 +66,11 @@ def data_source(data_dir) -> str:
 def metadata(data_dir) -> dict:
     with open(Path(data_dir) / "metadata.json", encoding="utf-8") as f:
         return json.load(f)
+
+
+def shuffle_seed(data_dir):
+    """Seed do embaralhamento (scripts/make_shuffled_connectome.py), ou None."""
+    return metadata(data_dir).get("shuffle", {}).get("seed")
 
 
 def data_tags(data_dir) -> tuple[str, str, str]:
@@ -88,7 +94,8 @@ def origin(row: dict) -> tuple:
             cfg.get("retina_axis", "pca"),
             cfg.get("homeostasis_scope", "plastic"),
             int(cfg.get("n_serves", st.DEFAULTS["n_serves"])),
-            int(cfg.get("dev_anneal_serves", 0)))
+            int(cfg.get("dev_anneal_serves", 0)),
+            row.get("shuffle_seed"))
 
 
 def load(path: Path) -> dict:
@@ -162,6 +169,9 @@ def main_cli():
         suffix += f"-dn-{dn_set}"
     if input_set != "original":
         suffix += f"-in-{input_set}"
+    shuf = shuffle_seed(args.data_dir)
+    if shuf is not None:
+        suffix += f"-shuf{shuf}"
     if args.retina_axis != "pca":
         suffix += f"-{args.retina_axis}"
     if args.homeostasis_scope != "plastic":
@@ -173,7 +183,7 @@ def main_cli():
     out = Path(args.out) if args.out else HERE / "docs" / f"achado-19-resultados-{source}{suffix}.jsonl"
     rows = load(out)
     this = (source, dataset, dn_set, input_set, args.retina_axis, args.homeostasis_scope,
-            args.serves, args.dev_anneal_serves)
+            args.serves, args.dev_anneal_serves, shuf)
     other = {origin(r) for r in rows.values()} - {this}
     if other:
         print(f"ERRO: {out} tem resultados de outra origem/eixo ({sorted(other)}); "
