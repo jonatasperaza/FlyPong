@@ -195,7 +195,7 @@ class DopamineLearner(CovarianceRPELearner):
     Como a recompensa da acao do frame t so chega aos neuronios
     dopaminergicos no frame t+1, a mudanca usa o traco de elegibilidade do
     frame anterior (pre x perturbacao do pos, como na regra global):
-        dw_ij = eta * w_ref * DA_i(t+1) * e_ij(t) / rms(e)
+        dw_ij = eta * w_ref * DA_i(t+1) / rms(DA) * e_ij(t) / rms(e)
     A homeostase dos descendentes (fase de desenvolvimento) e a da classe base.
     """
 
@@ -217,6 +217,8 @@ class DopamineLearner(CovarianceRPELearner):
         self.elig_prev = None
         self.receives_da = tot[self.pre_pos] > 0
         self.last_da = np.zeros(len(pre_u))
+        self.da_rms = 0.0
+        self.da_updates = 0
 
     def update(self, frame_counts, reward, perturbation=None, apply=True):
         s = frame_counts[self.reward_dans]
@@ -224,6 +226,15 @@ class DopamineLearner(CovarianceRPELearner):
         a = self.da_mean_decay
         self.da_mean = a * self.da_mean + (1 - a) * s
         da = self.da_C @ dev
+        # escala tipica da dopamina (RMS movel nos neuronios que a recebem),
+        # para que `eta` tenha o mesmo significado da regra global (|RPE|~1)
+        got = self.da_C.sum(1) > 0
+        rms = float(np.sqrt(np.mean(da[got] ** 2))) if got.any() else 0.0
+        self.da_rms = rms if self.da_updates == 0 else (
+            self.scale_decay * self.da_rms + (1 - self.scale_decay) * rms)
+        self.da_updates += 1
+        if self.da_rms > 1e-9:
+            da = da / self.da_rms
         self.last_da = da
         if perturbation is not None:
             pdev = perturbation[self.post]
