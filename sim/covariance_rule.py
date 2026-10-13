@@ -175,3 +175,84 @@ class HomeostaticScaler:
             return
         err = self.target_rate - self.post_mean[self.entry_post]
         self.net.W.data[self.entries] *= np.clip(1.0 + self.rate * err, 0.5, 1.5)
+
+
+class DopamineLearner(CovarianceRPELearner):
+    """Plasticidade guiada por neuronios dopaminergicos reais (item 3).
+
+    A recompensa nao entra na regra como escalar global: ela e injetada como
+    corrente em neuronios dopaminergicos do conectoma (`reward_dans`, por
+    exemplo PAL03), que disparam com spikes. A dopamina que chega a cada
+    neuronio pre-sinaptico plastico i e
+
+        DA_i = sum_d c_di (s_d - <s_d>) / max_i sum_d c_di
+
+    com c_di as sinapses do conectoma do neuronio dopaminergico d para i,
+    s_d os spikes de d no frame e <s_d> a media recente (o erro de predicao
+    fica na adaptacao do proprio neuronio dopaminergico). Sinapses cujo
+    neuronio pre-sinaptico nao recebe dopamina nao mudam.
+
+    Como a recompensa da acao do frame t so chega aos neuronios
+    dopaminergicos no frame t+1, a mudanca usa o traco de elegibilidade do
+    frame anterior (pre x perturbacao do pos, como na regra global):
+        dw_ij = eta * w_ref * DA_i(t+1) * e_ij(t) / rms(e)
+    A homeostase dos descendentes (fase de desenvolvimento) e a da classe base.
+    """
+
+    def __init__(self, net, reward_dans, *, da_mean_decay: float = 0.98, **kw):
+        super().__init__(net, **kw)
+        self.reward_dans = np.asarray(reward_dans, dtype=np.int64)
+        dans = self.reward_dans
+        sub = net.W.tocsc()[:, dans].tocsr()  # linhas = pos, colunas = dans
+        # contagens (pesos sem ganho/sinal) dos dopaminergicos para cada pre plastico
+        pre_u = np.unique(self.pre)
+        C = np.abs(sub[pre_u].toarray())
+        tot = C.sum(1)
+        norm = tot.max() if tot.max() > 0 else 1.0
+        self.da_pre_ids = pre_u
+        self.da_C = C / norm  # (n_pre_u, n_dans)
+        self.pre_pos = np.searchsorted(pre_u, self.pre)
+        self.da_mean = np.zeros(len(dans))
+        self.da_mean_decay = float(da_mean_decay)
+        self.elig_prev = None
+        self.receives_da = tot[self.pre_pos] > 0
+        self.last_da = np.zeros(len(pre_u))
+
+    def update(self, frame_counts, reward, perturbation=None, apply=True):
+        s = frame_counts[self.reward_dans]
+        dev = s - self.da_mean
+        a = self.da_mean_decay
+        self.da_mean = a * self.da_mean + (1 - a) * s
+        da = self.da_C @ dev
+        self.last_da = da
+        if perturbation is not None:
+            pdev = perturbation[self.post]
+        else:
+            pdev = frame_counts[self.post] - self.post_mean[self.post]
+        elig_now = frame_counts[self.pre] * pdev
+        if self.elig_prev is not None and self.eta != 0.0 and len(self.data_idx):
+            rms = float(np.sqrt(np.mean(self.elig_prev ** 2)))
+            self.elig_rms = rms if self.n_updates == 0 else (
+                self.scale_decay * self.elig_rms + (1 - self.scale_decay) * rms)
+            if self.elig_rms > 1e-9:
+                # so as sinapses cujo pre recebe dopamina mudam (o teto
+                # tambem so se aplica a elas)
+                m = self.receives_da
+                idx = self.data_idx[m]
+                w = self.net.W.data[idx]
+                w += (self.eta * self.w_ref * da[self.pre_pos[m]] * self.elig_prev[m]
+                      / self.elig_rms)
+                np.clip(w, 0.0, self.w_cap, out=w)
+                self.net.W.data[idx] = w
+        self.elig_prev = elig_now
+        # homeostase e medias da classe base, sem a regra global
+        eta, self.eta = self.eta, 0.0
+        try:
+            super().update(frame_counts, 0.0, perturbation=perturbation, apply=apply)
+        finally:
+            self.eta = eta
+        return float(da.mean())
+
+    def reset_traces(self):
+        super().reset_traces()
+        self.elig_prev = None

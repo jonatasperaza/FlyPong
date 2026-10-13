@@ -38,7 +38,7 @@ import numpy as np
 import main
 import serve_eval as se
 import sim.network as netmod
-from sim.covariance_rule import CovarianceRPELearner, HomeostaticScaler
+from sim.covariance_rule import CovarianceRPELearner, DopamineLearner, HomeostaticScaler
 from game.pong import PongGame, HEIGHT, WIDTH, PADDLE_H
 from game.sensory_map import ball_to_photoreceptor_stimulus
 from game.motor_read import read_motor_action
@@ -96,6 +96,8 @@ def train(runner, learner, *, n_serves, train_seed, noise_std, reward_mode,
     desc = net.descending_idx
     if noise_mode == "antisymmetric":
         pair_r, pair_l = antisymmetric_pairs(net)
+    reward_dans = getattr(learner, "reward_dans", None)
+    reward_prev = 0.0
     saved_lr = netmod.PLASTIC_LR
     netmod.PLASTIC_LR = 0.0  # a regra original fica desligada
     try:
@@ -112,6 +114,7 @@ def train(runner, learner, *, n_serves, train_seed, noise_std, reward_mode,
             se.serve(game, rng)
             net.reset()
             learner.reset_traces()
+            reward_prev = 0.0
             for _ in range(se.MAX_FRAMES_PER_TRIAL):
                 stim = ball_to_photoreceptor_stimulus(
                     runner.perceived_ball_y(game), game.ball_x, HEIGHT, WIDTH,
@@ -122,6 +125,10 @@ def train(runner, learner, *, n_serves, train_seed, noise_std, reward_mode,
                 for _ in range(runner.substeps):
                     external.fill(0.0)
                     external[net.photoreceptor_idx] += stim
+                    if reward_dans is not None:
+                        # recompensa do frame anterior -> corrente nos
+                        # dopaminergicos (sobre um disparo tonico)
+                        external[reward_dans] += DA_TONIC + DA_REWARD_GAIN * reward_prev
                     if noise_std > 0 and noise_mode == "antisymmetric":
                         xi = noise_rng.normal(0.0, noise_std, len(pair_r))
                         external[pair_r] += xi
@@ -153,6 +160,7 @@ def train(runner, learner, *, n_serves, train_seed, noise_std, reward_mode,
                     perturbation=noise_sum if elig_mode == "perturbation" else None,
                     apply=done or reward_mode != "sparse",
                 )
+                reward_prev = reward
                 if on_frame is not None:
                     on_frame(accum)
                 if done:
@@ -169,6 +177,12 @@ def train(runner, learner, *, n_serves, train_seed, noise_std, reward_mode,
 
 
 NOISE_MODES = ("independent", "antisymmetric")
+# plasticity="dopamine": corrente nos neuronios dopaminergicos de recompensa
+# (LIF, limiar 1): tonica 2,0 (~0,45 spike/frame) mais 1,5 x recompensa do
+# frame anterior (+1: ~0,75; -1: silencio).
+DA_TONIC = 2.0
+DA_REWARD_GAIN = 1.5
+PLASTICITY_MODES = ("global", "dopamine")
 
 
 def antisymmetric_pairs(net):
@@ -265,7 +279,8 @@ def run_condition(data_dir, *, condition, policy, train_seed, eval_seed,
                   retina_axis="pca", checkpoint_path=None, checkpoint_every=50,
                   dev_seed=None, recalibrate_after_dev=False,
                   visual_target_rate=None, noise_mode="independent",
-                  synapse_sign="none", dev_anneal_serves=0, neuron_model="lif"):
+                  synapse_sign="none", dev_anneal_serves=0, neuron_model="lif",
+                  plasticity="global", reward_dan_types=("PAL03",)):
     """Roda uma condicao do experimento.
 
     policy:
@@ -300,6 +315,13 @@ def run_condition(data_dir, *, condition, policy, train_seed, eval_seed,
     `synapse_sign`: "none" (todas as sinapses excitatorias, como ate o Achado
     23) ou "nt" (GABA e glutamato inibitorios; ver sim/network.py).
 
+    `plasticity`: "global" (regra com erro de predicao escalar, como ate o
+    Achado 25) ou "dopamine" (sim/covariance_rule.DopamineLearner: a
+    recompensa vira corrente nos neuronios `reward_dan_types` e so mudam as
+    sinapses cujo neuronio pre-sinaptico recebe sinapses deles; as saidas
+    sinapticas desses neuronios sao zeradas, a dopamina so modula a
+    plasticidade).
+
     `dev_anneal_serves`: nos ultimos N saques do desenvolvimento, a taxa das
     duas homeostases cai linearmente ate zero (recozimento). Diagnostico do
     Achado 24: com a taxa fixa, a rede oscila entre saques calmos e saques
@@ -319,10 +341,26 @@ def run_condition(data_dir, *, condition, policy, train_seed, eval_seed,
                                  neuron_model=neuron_model)
         if condition == "inverted":
             se.invert_readout(runner)
-        learner = CovarianceRPELearner(
-            runner.net, eta=0.0, elig_decay=elig_decay, w_cap_factor=w_cap_factor,
-            homeostasis_rate=homeostasis_rate, target_rate=target_rate,
-        )
+        if plasticity not in PLASTICITY_MODES:
+            raise ValueError(f"unknown plasticity: {plasticity}")
+        lkw = dict(eta=0.0, elig_decay=elig_decay, w_cap_factor=w_cap_factor,
+                   homeostasis_rate=homeostasis_rate, target_rate=target_rate)
+        if plasticity == "dopamine":
+            net = runner.net
+            types = net.neurons_df["type"].astype(str).to_numpy()
+            dans = np.flatnonzero(np.isin(types, list(reward_dan_types)))
+            if not len(dans):
+                raise ValueError(f"nenhum neuronio dos tipos {reward_dan_types} no subgrafo")
+            learner = DopamineLearner(net, dans, **lkw)
+            # a dopamina so modula a plasticidade: sem sinapses rapidas de saida
+            Wc = net.W.tocsc()
+            for d in dans:
+                Wc.data[Wc.indptr[d]:Wc.indptr[d + 1]] = 0.0
+            net.W = Wc.tocsr()
+            net.plastic_data_idx = net._find_data_indices(net.plastic_pre, net.plastic_post)
+            learner.data_idx = net.plastic_data_idx
+        else:
+            learner = CovarianceRPELearner(runner.net, **lkw)
         w0 = runner.net.W.data[runner.net.plastic_data_idx].copy()
         scaler = None
         if homeostasis_scope != "plastic":
@@ -422,6 +460,8 @@ def run_condition(data_dir, *, condition, policy, train_seed, eval_seed,
                    "synapse_sign": synapse_sign,
                    "dev_anneal_serves": dev_anneal_serves,
                    "neuron_model": neuron_model,
+                   "plasticity": plasticity,
+                   "reward_dan_types": list(reward_dan_types) if plasticity == "dopamine" else None,
                    "sensory_mode": "egocentric",
                    "retina_axis": retina_axis},
         "weights": {"mean_before": float(w0.mean()), "mean_after": float(w1.mean()),
