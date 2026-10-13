@@ -155,6 +155,8 @@ def main_cli():
     ap.add_argument("--summary-only", action="store_true")
     ap.add_argument("--conditions", nargs="+", choices=list(CONDITIONS), default=list(CONDITIONS),
                     help="condicoes a rodar, nesta ordem")
+    ap.add_argument("--policies", nargs="+", choices=list(st.POLICIES), default=list(st.POLICIES),
+                    help="politicas a rodar")
     args = ap.parse_args()
 
     if not (Path(args.data_dir) / "neurons.parquet").exists():
@@ -201,6 +203,7 @@ def main_cli():
              checkpoint_path(out, cond, pol, ev), args.dev_anneal_serves)
             for cond in args.conditions
             for pol in ("trained",) + st.POLICIES[1:]
+            if pol in args.policies
             for tr, ev in zip(se.TRAIN_SEEDS, se.EVAL_SEEDS)
             if (cond, pol, ev) not in rows
         ]

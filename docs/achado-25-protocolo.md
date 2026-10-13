@@ -67,3 +67,10 @@ Uma segunda seed de embaralhamento só será rodada para replicar, qualquer
 que seja o resultado, e relatada junto.
 
 Qualquer resultado entra no README como Achado 25.
+
+## Adendo (antes de rodar a réplica)
+
+Réplica com um segundo embaralhamento (`--seed 1`, `connectome_v09_in21_shuf1`),
+só com a política treinada na condição normal, as mesmas seeds de treino e de
+teste (critério 1). Decidido depois de ver o resultado da condição normal com
+a seed 0, como previsto na limitação acima; o critério não muda.
